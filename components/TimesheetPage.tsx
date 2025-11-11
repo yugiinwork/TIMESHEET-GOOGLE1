@@ -1,8 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork } from '../types';
-import { CatalystInsightsModal } from './CatalystInsightsModal';
 
 interface TimesheetPageProps {
   userId: number;
@@ -34,12 +32,6 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
   const [editingTimesheet, setEditingTimesheet] = useState<EditingTimesheetState | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // AI Catalyst State
-  const [isCatalystOpen, setIsCatalystOpen] = useState(false);
-  const [isCatalystLoading, setIsCatalystLoading] = useState(false);
-  const [catalystData, setCatalystData] = useState<string | null>(null);
-  const [catalystError, setCatalystError] = useState<string | null>(null);
-
   const filteredTimesheets = useMemo(() => {
     if (!searchQuery) {
         return timesheets;
@@ -53,90 +45,6 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
         });
     });
   }, [timesheets, searchQuery, projects]);
-
-  // --- CloudScale Catalyst Logic ---
-  const handleCatalystAnalysis = async () => {
-    setIsCatalystOpen(true);
-    setIsCatalystLoading(true);
-    setCatalystError(null);
-
-    try {
-        if (!process.env.API_KEY) {
-            throw new Error("System Configuration Error: Catalyst API Key missing.");
-        }
-
-        // 1. LINK: Retrieve Data from CloudScale Database (via props)
-        const myTimesheets = timesheets.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10); // Last 10 entries
-        
-        // 2. CONTEXT: Get assigned projects to compare with actual work
-        const assignedProjects = projects.filter(p => 
-            p.teamIds.includes(userId) || 
-            p.managerId === userId || 
-            p.teamLeaderId === userId
-        );
-        const assignedProjectNames = assignedProjects.length > 0 
-            ? assignedProjects.map(p => p.name).join(', ') 
-            : "No specific projects assigned in database.";
-
-        if (myTimesheets.length === 0) {
-            setCatalystData("### CloudScale Database Report\n\n*Status: No Data Found*\n\nWe could not find enough recent records in the CloudScale storage to generate an analysis. Please submit your first timesheet to activate Catalyst.");
-            setIsCatalystLoading(false);
-            return;
-        }
-
-        const dataSummary = myTimesheets.map(ts => {
-            const workDetails = ts.projectWork.map(pw => {
-                const projName = projects.find(p => p.id === pw.projectId)?.name || 'Unknown Project';
-                const tasks = pw.workEntries.map(we => `- ${we.description} (${we.hours}hrs)`).join('\n');
-                return `Project: ${projName}\n${tasks}`;
-            }).join('\n');
-            return `Date: ${ts.date}\n${workDetails}`;
-        }).join('\n---\n');
-
-        // 3. PROCESS: Initialize Gemini API (Catalyst Engine)
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
-        // 4. PROMPT: Strictly link the DB Data with the AI Analysis
-        const prompt = `
-            You are **CloudScale Catalyst**, the intelligent analysis layer linked to the **CloudScale Database**.
-            
-            I am providing you with a live stream of records directly from the database for the current user.
-
-            **Database Profile Context:**
-            - **User ID:** ${userId}
-            - **Assigned Projects (Expected Work):** ${assignedProjectNames}
-            
-            **Database Records (Recent Activity Stream):**
-            --- START RECORD DUMP ---
-            ${dataSummary}
-            --- END RECORD DUMP ---
-
-            **Analysis Task:**
-            Based *only* on this structured data from the database, generate a "Catalyst Productivity Report". Compare their actual work logs against their assigned projects if possible.
-            
-            **Output Format (Markdown):**
-            1.  **📊 Database Pulse**: A summary of the data analyzed (e.g., "scanned X hours of records across Y projects..."). Mention if they are working on assigned projects.
-            2.  **🔍 Work Pattern Decoding**: Identify trends in how time is being allocated. Are they multitasking heavily? Focusing deep? 
-            3.  **🚀 Catalyst Recommendations**: 3 specific, actionable bullet points to improve workflow efficiency.
-            
-            Tone: Professional, insightful, and data-driven.
-        `;
-
-        const result = await ai.models.generateContent({
-             model: 'gemini-2.5-flash',
-             contents: prompt,
-        });
-        
-        setCatalystData(result.text);
-
-    } catch (err: any) {
-        console.error("Catalyst Error:", err);
-        setCatalystError(err.message || "Failed to generate insights. CloudScale Catalyst could not connect.");
-    } finally {
-        setIsCatalystLoading(false);
-    }
-  };
-
 
   const openModal = (timesheetToEdit?: Timesheet) => {
     // 1. Find all assigned, non-done tasks for the current user
@@ -324,22 +232,6 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
                  </div>
              </div>
             
-            {/* Catalyst Button (Deployed) */}
-            <button 
-                onClick={handleCatalystAnalysis}
-                className="group px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition shadow-md flex items-center gap-2 border border-indigo-400 relative overflow-hidden"
-            >
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-200 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                </span>
-                <span className="hidden md:inline font-semibold relative z-10">Catalyst AI</span>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 relative z-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-            </button>
-
             {onExport && (
                  <button onClick={onExport} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition flex items-center gap-2">
                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
@@ -446,15 +338,7 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
           </div>
         </div>
       )}
-
-      {/* Catalyst AI Modal */}
-      <CatalystInsightsModal 
-        isOpen={isCatalystOpen}
-        onClose={() => setIsCatalystOpen(false)}
-        isLoading={isCatalystLoading}
-        insightData={catalystData}
-        error={catalystError}
-      />
     </div>
   );
 };
+    
