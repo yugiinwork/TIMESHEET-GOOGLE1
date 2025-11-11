@@ -1,0 +1,627 @@
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, Notification } from './types';
+import { Sidebar } from './components/Sidebar';
+import { Header } from './components/Header';
+import { ProfilePage } from './components/ProfilePage';
+import { TimesheetPage } from './components/TimesheetPage';
+import { LeaveRequestPage } from './components/LeaveRequestPage';
+import { ManagerReviewPage } from './components/ManagerReviewPage';
+import { ProjectManagementPage } from './components/ProjectManagementPage';
+import { UserManagementPage } from './components/UserManagementPage';
+import { TasksPage } from './components/TasksPage';
+import { SetBestEmployeeModal } from './components/SetBestEmployeeModal';
+import { DashboardPage } from './components/DashboardPage';
+import { NotificationToast } from './components/NotificationToast';
+import { cloudscaleApi } from './api/cloudscale';
+
+type View = 'DASHBOARD' | 'PROFILE' | 'TIMESHEETS' | 'LEAVE' | 'TEAM_TIMESHEETS' | 'TEAM_LEAVE' | 'PROJECTS' | 'USERS' | 'TASKS';
+
+// Declare XLSX for the linter since it's loaded from a script tag.
+declare var XLSX: any;
+
+const emptyState = {
+  users: [],
+  timesheets: [],
+  leaveRequests: [],
+  projects: [],
+  tasks: [],
+  bestEmployeeId: null,
+};
+
+
+const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [view, setView] = useState<View>('DASHBOARD');
+  const [authView, setAuthView] = useState<'login' | 'signup'>('login');
+  
+  // --- Local UI State ---
+  const [isBestEmployeeModalOpen, setIsBestEmployeeModalOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const [loading, setLoading] = useState(true);
+
+  // --- Real-time Global State ---
+  const [appData, setAppData] = useState(emptyState);
+
+  // Effect for Theme Management
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  // Effect to fetch initial data from CloudScale
+  useEffect(() => {
+    const fetchData = async () => {
+        try {
+            const data = await cloudscaleApi.getAppData();
+            setAppData(data);
+        } catch (error) {
+            console.error("Failed to load data from CloudScale", error);
+            setError("Could not connect to CloudScale data storage.");
+        } finally {
+            setLoading(false);
+        }
+    };
+    fetchData();
+  }, []);
+
+  // --- Destructure data for easier access ---
+  const { users, timesheets, leaveRequests, projects, tasks, bestEmployeeId } = appData;
+
+  // --- Create async setters that update global state via API ---
+  const setUsers = async (value: React.SetStateAction<User[]>) => {
+    const newUsers = typeof value === 'function' ? value(users) : value;
+    await cloudscaleApi.updateUsers(newUsers);
+    setAppData(prev => ({ ...prev, users: newUsers }));
+  };
+  const setTimesheets = async (value: React.SetStateAction<Timesheet[]>) => {
+    const newTimesheets = typeof value === 'function' ? value(timesheets) : value;
+    await cloudscaleApi.updateTimesheets(newTimesheets);
+    setAppData(prev => ({ ...prev, timesheets: newTimesheets }));
+  };
+  const setLeaveRequests = async (value: React.SetStateAction<LeaveRequest[]>) => {
+    const newLeaveRequests = typeof value === 'function' ? value(leaveRequests) : value;
+    await cloudscaleApi.updateLeaveRequests(newLeaveRequests);
+    setAppData(prev => ({ ...prev, leaveRequests: newLeaveRequests }));
+  };
+  const setProjects = async (value: React.SetStateAction<Project[]>) => {
+    const newProjects = typeof value === 'function' ? value(projects) : value;
+    await cloudscaleApi.updateProjects(newProjects);
+    setAppData(prev => ({ ...prev, projects: newProjects }));
+  };
+  const setTasks = async (value: React.SetStateAction<Task[]>) => {
+    const newTasks = typeof value === 'function' ? value(tasks) : value;
+    await cloudscaleApi.updateTasks(newTasks);
+    setAppData(prev => ({ ...prev, tasks: newTasks }));
+  };
+
+  
+  // --- Auth State ---
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [signupData, setSignupData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    employeeId: '',
+    dob: '',
+    phone: '',
+    address: '',
+    designation: '',
+    managerId: '',
+    company: '',
+  });
+
+  const companyUsers = useMemo(() => {
+    if (!currentUser) return [];
+    return users.filter(u => u.company === currentUser.company);
+  }, [currentUser, users]);
+
+  const companyProjects = useMemo(() => {
+      if (!currentUser) return [];
+      return projects.filter(p => p.company === currentUser.company);
+  }, [currentUser, projects]);
+
+  const teamMembers = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === Role.TEAM_LEADER) {
+      return companyUsers.filter(u => u.managerId === currentUser.id);
+    }
+    return [];
+  }, [currentUser, companyUsers]);
+
+  useEffect(() => {
+    const projectsWithUpdatedHours = projects.map(p => {
+        const totalHours = timesheets.reduce((projectSum, ts) => {
+            if (ts.status !== Status.APPROVED) return projectSum;
+
+            const workForThisProject = ts.projectWork.find(pw => pw.projectId === p.id);
+            if (workForThisProject) {
+                const hoursInTimesheet = workForThisProject.workEntries.reduce((workSum, entry) => workSum + entry.hours, 0);
+                return projectSum + hoursInTimesheet;
+            }
+            return projectSum;
+        }, 0);
+        return { ...p, actualHours: totalHours };
+    });
+
+    const currentProjectHoursJSON = JSON.stringify(projects.map(p => ({id: p.id, actualHours: p.actualHours})));
+    const newProjectHoursJSON = JSON.stringify(projectsWithUpdatedHours.map(p => ({id: p.id, actualHours: p.actualHours})));
+
+    if (newProjectHoursJSON !== currentProjectHoursJSON) {
+      setProjects(projectsWithUpdatedHours);
+    }
+  }, [timesheets, projects]);
+  
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+    try {
+        const user = await cloudscaleApi.login(email, password);
+        if (user) {
+            setCurrentUser(user);
+            setView('DASHBOARD');
+            setEmail('');
+            setPassword('');
+        } else {
+            setError('Invalid email or password.');
+        }
+    } catch (err) {
+        setError('An error occurred during login.');
+    }
+  };
+
+  const handleSignupInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setSignupData(prev => ({...prev, [name]: value}));
+    setError('');
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailExists = users.some(u => u.email === signupData.email);
+    if (emailExists) {
+      setError('An account with this email already exists.');
+      return;
+    }
+
+    const companyExists = users.some(u => u.company?.toLowerCase() === signupData.company.toLowerCase());
+    
+    if (companyExists && !signupData.managerId) {
+        setError('Please select a manager for this company.');
+        return;
+    }
+
+    const newUser: User = {
+      id: Date.now(),
+      role: companyExists ? Role.EMPLOYEE : Role.ADMIN,
+      profilePictureUrl: `https://i.pravatar.cc/150?u=${Date.now()}`,
+      ...signupData,
+      managerId: companyExists ? Number(signupData.managerId) : undefined,
+    };
+    
+    await setUsers(prev => [...prev, newUser]);
+    setAuthView('login');
+    setSuccessMessage('Account created successfully! Please log in.');
+    setError('');
+    setSignupData({
+        name: '', email: '', password: '', employeeId: '', dob: '', 
+        phone: '', address: '', designation: '', managerId: '', company: ''
+    });
+  };
+  
+  // --- Data Export ---
+  const downloadExcel = (filename: string, workbook: any) => {
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+  };
+  
+  const handleExportProjects = () => {
+    const companyProjectsToExport = projects.filter(p => p.company === currentUser?.company);
+    const companyUsersToExport = users.filter(u => u.company === currentUser?.company);
+
+    const projectHeaders = ['ID', 'Name', 'Description', 'Customer Name', 'Job Name', 'Estimated Hours', 'Actual Hours', 'Manager ID', 'Manager Name', 'Team Leader ID', 'Team Leader Name', 'Team IDs'];
+    const projectData = companyProjectsToExport.map(p => [p.id, p.name, p.description, p.customerName, p.jobName, p.estimatedHours, p.actualHours, p.managerId, companyUsersToExport.find(u => u.id === p.managerId)?.name || '', p.teamLeaderId || '', companyUsersToExport.find(u => u.id === p.teamLeaderId)?.name || '', p.teamIds.join(';')]);
+    
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([projectHeaders, ...projectData]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Projects');
+    downloadExcel('projects', wb);
+  };
+  
+  const handleExportTimesheets = () => {
+    const companyUserIds = users.filter(u => u.company === currentUser?.company).map(u => u.id);
+    const companyTimesheets = timesheets.filter(ts => companyUserIds.includes(ts.userId));
+
+    const timesheetHeaders = ['Timesheet ID', 'User ID', 'User Name', 'Date', 'In-Time', 'Out-Time', 'Project ID', 'Project Name', 'Task Description', 'Task Hours', 'Status', 'Approver Name'];
+    const timesheetsByMonth = companyTimesheets.reduce((acc, ts) => {
+        const month = ts.date.substring(0, 7); // YYYY-MM
+        (acc[month] = acc[month] || []).push(ts);
+        return acc;
+    }, {} as Record<string, Timesheet[]>);
+
+    const wb = XLSX.utils.book_new();
+
+    Object.entries(timesheetsByMonth).forEach(([month, monthTimesheets]: [string, Timesheet[]]) => {
+        const data: (string|number|undefined)[][] = [];
+        monthTimesheets.forEach(ts => {
+            const userName = users.find(u => u.id === ts.userId)?.name || 'Unknown';
+            const approverName = ts.approverId ? (users.find(u=>u.id === ts.approverId)?.name || 'Unknown') : '';
+            ts.projectWork.forEach(pw => {
+              const projectName = projects.find(p => p.id === pw.projectId)?.name || 'N/A';
+              pw.workEntries.forEach(we => {
+                  data.push([
+                      ts.id, ts.userId, userName, ts.date, ts.inTime, ts.outTime,
+                      pw.projectId, projectName, we.description, we.hours,
+                      ts.status, approverName
+                  ]);
+              });
+            });
+        });
+        const ws = XLSX.utils.aoa_to_sheet([timesheetHeaders, ...data]);
+        XLSX.utils.book_append_sheet(wb, ws, month);
+    });
+    downloadExcel('timesheets', wb);
+  };
+
+  const handleExportLeaveRequests = () => {
+    const companyUserIds = users.filter(u => u.company === currentUser?.company).map(u => u.id);
+    const companyLeaveRequests = leaveRequests.filter(lr => companyUserIds.includes(lr.userId));
+    
+    const leaveHeaders = ['Request ID', 'User ID', 'User Name', 'Leave Date', 'Leave Type', 'Half Day Session', 'Reason', 'Status', 'Approver Name'];
+    const leavesByMonth = companyLeaveRequests.reduce((acc, lr) => {
+        if (lr.leaveEntries.length > 0) {
+            const month = lr.leaveEntries[0].date.substring(0, 7);
+            (acc[month] = acc[month] || []).push(lr);
+        }
+        return acc;
+    }, {} as Record<string, LeaveRequest[]>);
+
+    const wb = XLSX.utils.book_new();
+
+    Object.entries(leavesByMonth).forEach(([month, monthLeaves]: [string, LeaveRequest[]]) => {
+        const data: (string|number|undefined)[][] = [];
+        monthLeaves.forEach(lr => {
+            const userName = users.find(u => u.id === lr.userId)?.name || 'Unknown';
+            const approverName = lr.approverId ? (users.find(u=>u.id === lr.approverId)?.name || 'Unknown') : '';
+            lr.leaveEntries.forEach(entry => {
+                data.push([
+                    lr.id, lr.userId, userName, 
+                    entry.date, entry.leaveType, (entry as any).halfDaySession || '', 
+                    lr.reason, lr.status, approverName
+                ]);
+            });
+        });
+        const ws = XLSX.utils.aoa_to_sheet([leaveHeaders, ...data]);
+        XLSX.utils.book_append_sheet(wb, ws, month);
+    });
+    downloadExcel('leave_requests', wb);
+  };
+
+  const removeNotification = (id: number) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const addNotification = (message: string) => {
+    const newNotification = { id: Date.now(), message };
+    setNotifications(prev => [...prev, newNotification]);
+  };
+
+  const toggleTheme = () => {
+    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
+        <div className="flex flex-col items-center">
+          <svg className="animate-spin h-10 w-10 text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="mt-4 text-slate-600 dark:text-slate-300">Connecting to CloudScale Catalyst...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    if (authView === 'login') {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
+            <div className="max-w-md w-full bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg">
+              <div className="flex items-center justify-center gap-3 mb-6">
+                <div className="bg-sky-500 rounded-lg p-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                </div>
+                <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Timesheet Pro Login</h1>
+              </div>
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Email Address</label>
+                  <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(''); setSuccessMessage(''); }} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-sky-500 focus:border-sky-500"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Password</label>
+                  <input type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(''); setSuccessMessage(''); }} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-sky-500 focus:border-sky-500"/>
+                </div>
+                {error && <p className="text-sm text-red-500">{error}</p>}
+                {successMessage && <p className="text-sm text-green-500">{successMessage}</p>}
+                <div>
+                  <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500">
+                    Sign in
+                  </button>
+                </div>
+              </form>
+               <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                  Don't have an account?{' '}
+                  <button onClick={() => { setAuthView('signup'); setError(''); setSuccessMessage(''); }} className="font-medium text-sky-600 hover:text-sky-500">
+                    Sign up
+                  </button>
+                </p>
+            </div>
+          </div>
+        );
+    } else { // Signup view
+        const companyExists = users.some(u => u.company?.toLowerCase() === signupData.company.toLowerCase());
+        const managersForCompany = users.filter(u => u.company?.toLowerCase() === signupData.company.toLowerCase() && (u.role === Role.MANAGER || u.role === Role.ADMIN || u.role === Role.TEAM_LEADER));
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 py-12 px-4">
+                <div className="max-w-2xl w-full bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg">
+                    <div className="flex items-center justify-center gap-3 mb-6">
+                        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Create Your Account</h1>
+                    </div>
+                    <form onSubmit={handleSignup} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Full Name</label>
+                                <input type="text" name="name" value={signupData.name} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Email Address</label>
+                                <input type="email" name="email" value={signupData.email} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Password</label>
+                                <input type="password" name="password" value={signupData.password} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Employee ID</label>
+                                <input type="text" name="employeeId" value={signupData.employeeId} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Designation</label>
+                                <input type="text" name="designation" value={signupData.designation} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Company</label>
+                                <input type="text" name="company" value={signupData.company} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                                {signupData.company && !companyExists && <p className="text-xs text-green-500 mt-1">You will be the administrator for this new company.</p>}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Date of Birth</label>
+                                <input type="date" name="dob" value={signupData.dob} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Phone</label>
+                            <input type="tel" name="phone" value={signupData.phone} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                        </div>
+                         <div>
+                            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Address</label>
+                            <input type="text" name="address" value={signupData.address} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3"/>
+                        </div>
+                         {companyExists && (
+                             <div>
+                                <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Manager</label>
+                                <select name="managerId" value={signupData.managerId} onChange={handleSignupInputChange} required className="mt-1 block w-full bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm py-2 px-3">
+                                    <option value="" disabled>Select your manager</option>
+                                    {managersForCompany.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
+                                </select>
+                            </div>
+                         )}
+
+                        {error && <p className="text-sm text-red-500">{error}</p>}
+
+                        <div>
+                            <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500">
+                                Create Account
+                            </button>
+                        </div>
+                    </form>
+                    <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                      Already have an account?{' '}
+                      <button onClick={() => { setAuthView('login'); setError(''); setSuccessMessage(''); }} className="font-medium text-sky-600 hover:text-sky-500">
+                        Log in
+                      </button>
+                    </p>
+                </div>
+            </div>
+        )
+    }
+  }
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+  };
+  
+  const handleUpdateUser = async (updatedUser: User) => {
+    await setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    if (currentUser?.id === updatedUser.id) {
+        setCurrentUser(updatedUser);
+    }
+  };
+
+  const handleDeleteUser = async (userId: number) => {
+    await setUsers(prev => prev.filter(u => u.id !== userId));
+  };
+  
+  const handleSetBestEmployee = async (userId: number) => {
+    await cloudscaleApi.updateBestEmployee(userId);
+    setAppData(prev => ({...prev, bestEmployeeId: userId}));
+    setIsBestEmployeeModalOpen(false);
+  }
+
+  const renderView = () => {
+    const canExport = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
+    const companyUserIds = companyUsers.map(u => u.id);
+
+    switch (view) {
+      case 'DASHBOARD':
+        return <DashboardPage
+            currentUser={currentUser}
+            users={companyUsers}
+            timesheets={timesheets}
+            leaveRequests={leaveRequests}
+            projects={companyProjects}
+            bestEmployeeId={bestEmployeeId}
+            setView={setView}
+        />;
+      case 'PROFILE':
+        return <ProfilePage user={currentUser} onUpdateUser={handleUpdateUser} currentUser={currentUser} />;
+      case 'TIMESHEETS':
+        return <TimesheetPage 
+            userId={currentUser.id} 
+            timesheets={timesheets.filter(t => t.userId === currentUser.id)}
+            setTimesheets={setTimesheets}
+            projects={companyProjects}
+            tasks={tasks}
+            onExport={canExport ? handleExportTimesheets : undefined}
+        />;
+      case 'LEAVE':
+        return <LeaveRequestPage 
+            userId={currentUser.id}
+            leaveRequests={leaveRequests.filter(l => l.userId === currentUser.id)}
+            setLeaveRequests={setLeaveRequests}
+            onExport={canExport ? handleExportLeaveRequests : undefined}
+        />;
+       case 'TASKS':
+        const userVisibleProjects = companyProjects.filter(p => 
+            p.teamIds.includes(currentUser.id) || 
+            p.managerId === currentUser.id ||
+            p.teamLeaderId === currentUser.id
+        );
+        return <TasksPage
+          projects={userVisibleProjects}
+          tasks={tasks}
+          users={companyUsers}
+          currentUser={currentUser}
+          setTasks={setTasks}
+          addNotification={addNotification}
+        />
+      case 'TEAM_TIMESHEETS': {
+        let itemsToReview: Timesheet[];
+        let viewTitle: string;
+        let canApproveItems = currentUser.role !== Role.ADMIN;
+
+        if (currentUser.role === Role.ADMIN || currentUser.role === Role.MANAGER) {
+            itemsToReview = timesheets.filter(t => companyUserIds.includes(t.userId));
+            viewTitle = "All Timesheets";
+        } else { // Team Leader
+            const teamMemberIds = teamMembers.map(tm => tm.id);
+            itemsToReview = timesheets.filter(t => teamMemberIds.includes(t.userId));
+            viewTitle = "Team Timesheets";
+        }
+
+        return <ManagerReviewPage
+            title={viewTitle}
+            items={itemsToReview}
+            users={companyUsers}
+            currentUser={currentUser}
+            onUpdateStatus={async (id, status) => await setTimesheets(prev => prev.map(t => t.id === id ? {...t, status, approverId: currentUser.id} : t))}
+            canApprove={canApproveItems}
+            projects={companyProjects}
+            tasks={tasks}
+            onExport={canExport ? handleExportTimesheets : undefined}
+        />
+      }
+      case 'TEAM_LEAVE': {
+        let itemsToReview: LeaveRequest[];
+        let viewTitle: string;
+        let canApproveItems = currentUser.role !== Role.ADMIN;
+        
+        if (currentUser.role === Role.ADMIN || currentUser.role === Role.MANAGER) {
+             itemsToReview = leaveRequests.filter(l => companyUserIds.includes(l.userId));
+            viewTitle = "All Leave Requests";
+        } else { // Team Leader
+            const teamMemberIds = teamMembers.map(tm => tm.id);
+            itemsToReview = leaveRequests.filter(l => teamMemberIds.includes(l.userId));
+            viewTitle = "Team Leave Requests";
+        }
+
+        return <ManagerReviewPage
+            title={viewTitle}
+            items={itemsToReview}
+            users={companyUsers}
+            currentUser={currentUser}
+            onUpdateStatus={async (id, status) => await setLeaveRequests(prev => prev.map(l => l.id === id ? {...l, status, approverId: currentUser.id} : l))}
+            canApprove={canApproveItems}
+            projects={companyProjects}
+            tasks={tasks}
+            onExport={canExport ? handleExportLeaveRequests : undefined}
+        />
+      }
+      case 'PROJECTS':
+        return <ProjectManagementPage 
+            projects={companyProjects}
+            setProjects={setProjects}
+            users={companyUsers}
+            currentUser={currentUser}
+            onSetBestEmployee={() => setIsBestEmployeeModalOpen(true)}
+            onExport={canExport ? handleExportProjects : undefined}
+        />;
+      case 'USERS':
+        return <UserManagementPage 
+            users={companyUsers}
+            setUsers={setUsers}
+            currentUser={currentUser}
+            onDeleteUser={handleDeleteUser}
+        />;
+      default:
+        return <ProfilePage user={currentUser} onUpdateUser={handleUpdateUser} currentUser={currentUser} />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+      <Sidebar 
+        user={currentUser} 
+        setView={setView} 
+        currentView={view} 
+        onLogout={handleLogout}
+      />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header user={currentUser} theme={theme} onToggleTheme={toggleTheme} />
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
+          {renderView()}
+        </main>
+      </div>
+      {isBestEmployeeModalOpen && (
+        <SetBestEmployeeModal
+            users={companyUsers.filter(u => u.role === Role.EMPLOYEE || u.role === Role.TEAM_LEADER)}
+            onClose={() => setIsBestEmployeeModalOpen(false)}
+            onSet={handleSetBestEmployee}
+        />
+      )}
+      <div className="fixed top-5 right-5 z-[100] space-y-2">
+        {notifications.map(notification => (
+            <NotificationToast
+                key={notification.id}
+                message={notification.message}
+                onClose={() => removeNotification(notification.id)}
+            />
+        ))}
+    </div>
+    </div>
+  );
+};
+
+export default App;
