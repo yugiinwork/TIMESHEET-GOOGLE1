@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork, User } from '../types';
 
@@ -35,6 +34,14 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
   const [editingTimesheet, setEditingTimesheet] = useState<EditingTimesheetState | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
+  const myProjects = useMemo(() => {
+    return projects.filter(p => 
+      p.teamIds.includes(currentUser.id) ||
+      p.managerId === currentUser.id ||
+      p.teamLeaderId === currentUser.id
+    );
+  }, [projects, currentUser]);
+
   const filteredTimesheets = useMemo(() => {
     if (!searchQuery) {
         return timesheets;
@@ -55,23 +62,25 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
         t.assignedTo.includes(currentUser.id) && t.status !== 'Done'
     );
 
-    // 2. Group them by project ID
+    // 2. Group tasks by project ID for easy lookup
     const tasksByProject = assignedTasks.reduce((acc, task) => {
         (acc[task.projectId] = acc[task.projectId] || []).push(task);
         return acc;
     }, {} as Record<number, Task[]>);
 
-    // 3. Create the base structure from tasks
-    // Fix: Explicitly type the destructured array from Object.entries to fix 'unknown' type inference.
-    let projectWorkStructure: ModalProjectWork[] = Object.entries(tasksByProject).map(([projectId, projectTasks]: [string, Task[]]) => ({
-        projectId: Number(projectId),
-        workEntries: projectTasks.map(task => ({
-            description: `Task: ${task.title}`,
-            hours: 0,
-            isPredefined: true,
-            taskId: task.id,
-        }))
-    }));
+    // 3. Create the base structure from ALL projects the user is part of
+    let projectWorkStructure: ModalProjectWork[] = myProjects.map(project => {
+        const projectTasks = tasksByProject[project.id] || [];
+        return {
+            projectId: project.id,
+            workEntries: projectTasks.map(task => ({
+                description: `Task: ${task.title}`,
+                hours: 0,
+                isPredefined: true,
+                taskId: task.id,
+            }))
+        };
+    });
 
     // 4. If editing, merge the saved data
     if (timesheetToEdit) {
@@ -200,9 +209,6 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
       } as Timesheet;
       await setTimesheets(prev => [...prev, newTimesheet]);
       
-      // For the user submitting
-      addToastNotification(`Your timesheet for ${newTimesheet.date} has been submitted.`, 'Timesheet Submitted');
-
       // For the manager/leader
       if (currentUser.managerId) {
         await addNotification({
@@ -343,7 +349,7 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
                     </div>
                   ))}
                    {editingTimesheet.projectWork.length === 0 && (
-                        <p className="text-center text-slate-500 dark:text-slate-400 py-4">You have no active tasks assigned. You can add work manually.</p>
+                        <p className="text-center text-slate-500 dark:text-slate-400 py-4">You are not assigned to any projects. Add work manually if needed.</p>
                    )}
                 </div>
               </div>

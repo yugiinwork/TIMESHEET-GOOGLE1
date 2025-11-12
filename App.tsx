@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, ToastNotification, Notification, View, WorkEntry, ProjectWork, LeaveEntry } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -15,9 +13,7 @@ import { SetBestEmployeeModal } from './components/SetBestEmployeeModal';
 import { DashboardPage } from './components/DashboardPage';
 import { NotificationToast } from './components/NotificationToast';
 import { NotificationCenter } from './components/NotificationCenter';
-import { CatalystInsightsModal } from './components/CatalystInsightsModal';
 import { cloudscaleApi, LOCAL_STORAGE_KEY } from './api/cloudscale';
-import { GoogleGenAI } from '@google/genai';
 
 // Declare XLSX for the linter since it's loaded from a script tag.
 declare var XLSX: any;
@@ -44,10 +40,6 @@ const App: React.FC = () => {
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [loading, setLoading] = useState(true);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
-  const [isCatalystModalOpen, setIsCatalystModalOpen] = useState(false);
-  const [catalystIsLoading, setCatalystIsLoading] = useState(false);
-  const [catalystInsightData, setCatalystInsightData] = useState<string | null>(null);
-  const [catalystError, setCatalystError] = useState<string | null>(null);
 
 
   // --- Real-time Global State ---
@@ -513,69 +505,6 @@ const App: React.FC = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
   
-    // --- Catalyst AI Insights ---
-    const handleOpenCatalystModal = async () => {
-      setIsCatalystModalOpen(true);
-      setCatalystIsLoading(true);
-      setCatalystError(null);
-      setCatalystInsightData(null);
-  
-      try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-        const companyUserIds = companyUsers.map(u => u.id);
-        const companyTimesheets = timesheets.filter(t => companyUserIds.includes(t.userId));
-        const companyLeaveRequests = leaveRequests.filter(l => companyUserIds.includes(l.userId));
-        const companyTasks = tasks.filter(t => companyProjects.some(p => p.id === t.projectId));
-  
-        const prompt = `
-          You are 'CloudScale Catalyst', an expert business intelligence analyst. Your task is to analyze the provided JSON data for the company "${currentUser?.company}" and generate a concise, insightful report in Markdown format. The user is a manager or admin.
-  
-          Focus on productivity, project health, employee engagement, and potential risks or opportunities. Be direct and use data to back up your claims.
-  
-          Here is the data for the company:
-          - Users: ${JSON.stringify(companyUsers.map(({password, ...u}) => u))}
-          - Projects: ${JSON.stringify(companyProjects)}
-          - Timesheets: ${JSON.stringify(companyTimesheets)}
-          - Leave Requests: ${JSON.stringify(companyLeaveRequests)}
-          - Tasks: ${JSON.stringify(companyTasks)}
-          - Employee of the Month IDs: ${JSON.stringify(bestEmployeeIds)}
-  
-          Based on this data, provide a report with the following sections:
-          ### 🚀 Overall Summary
-          A brief, high-level overview of the company's current state.
-  
-          ### 📊 Project Health
-          Identify projects that are on track, at risk (e.g., high actual vs. estimated hours), or stalled. Mention key contributors and potential bottlenecks.
-  
-          ### 💡 Productivity & Engagement
-          Highlight the most productive employees or teams (based on tasks completed or approved hours on key projects). Identify potential signs of burnout (e.g., excessive hours, frequent small leaves). Comment on the "Employee of the Month" choice(s) based on data.
-  
-          ### 🌴 Leave & Attendance Patterns
-          Point out any interesting trends in leave requests (e.g., common reasons, frequent requesters, seasonal patterns).
-  
-          ### 🎯 Actionable Recommendations
-          Suggest 2-3 concrete, data-driven actions the management can take to improve operations, mitigate risks, or boost morale.
-        `;
-  
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-pro',
-          contents: prompt,
-        });
-  
-        setCatalystInsightData(response.text);
-      } catch (err: any) {
-        console.error("Catalyst AI error:", err);
-        setCatalystError("Failed to generate insights. The AI model may be unavailable or there was an issue with the data. Please try again later.");
-      } finally {
-        setCatalystIsLoading(false);
-      }
-    };
-  
-    const handleCloseCatalystModal = () => {
-      setIsCatalystModalOpen(false);
-    };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
@@ -826,6 +755,7 @@ const App: React.FC = () => {
             items={itemsToReview}
             users={companyUsers}
             currentUser={currentUser}
+            // FIX: Corrected a typo where 't' was used instead of 'l' in the map function's else clause.
             onUpdateStatus={async (id, status) => await setLeaveRequests(prev => prev.map(l => l.id === id ? {...l, status, approverId: currentUser.id} : l))}
             canApprove={canApproveItems}
             projects={companyProjects}
@@ -869,7 +799,6 @@ const App: React.FC = () => {
             onToggleTheme={toggleTheme} 
             userNotifications={userNotifications}
             onToggleNotifications={() => setIsNotificationCenterOpen(prev => !prev)}
-            onOpenCatalystInsights={handleOpenCatalystModal}
         />
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
           {renderView()}
@@ -892,14 +821,7 @@ const App: React.FC = () => {
         markAllNotificationsAsRead={markAllNotificationsAsRead}
         unreadCount={userNotifications.filter(n => !n.read).length}
       />
-       <CatalystInsightsModal
-        isOpen={isCatalystModalOpen}
-        onClose={handleCloseCatalystModal}
-        isLoading={catalystIsLoading}
-        insightData={catalystInsightData}
-        error={catalystError}
-      />
-      <div className="fixed top-5 right-5 z-[100] space-y-2">
+      <div className="fixed top-5 right-5 z-[2147483647] space-y-2">
         {toastNotifications.map(notification => (
             <NotificationToast
                 key={notification.id}
