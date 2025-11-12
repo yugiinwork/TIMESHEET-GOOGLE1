@@ -2,7 +2,7 @@
 import { User, Timesheet, LeaveRequest, Project, Task, Notification } from '../types';
 import { USERS, TIMESHEETS, LEAVE_REQUESTS, PROJECTS, TASKS, NOTIFICATIONS } from '../constants';
 
-const LOCAL_STORAGE_KEY = 'timesheetAppData_cloudscale';
+export const LOCAL_STORAGE_KEY = 'timesheetAppData_cloudscale';
 const SIMULATED_LATENCY = 200; // ms
 
 // --- Database Simulation ---

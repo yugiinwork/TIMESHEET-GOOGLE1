@@ -1,6 +1,6 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Timesheet, LeaveRequest, Status, User, Role, Project, Task, LeaveEntry } from '../types';
+import { Calendar } from './Calendar';
 
 type ReviewItem = (Timesheet | LeaveRequest) & { id: number; userId: number; status: Status; approverId?: number };
 
@@ -13,7 +13,7 @@ interface ManagerReviewPageProps {
   canApprove: boolean;
   projects: Project[];
   tasks: Task[];
-  onExport?: () => void;
+  onExport?: (startDate?: string, endDate?: string) => void;
 }
 
 const getStatusBadge = (status: Status) => {
@@ -117,6 +117,51 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
   const [roleFilter, setRoleFilter] = useState<Role | ''>('');
   const [designationFilter, setDesignationFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('name_asc');
+  const [exportStartDate, setExportStartDate] = useState<string>('');
+  const [exportEndDate, setExportEndDate] = useState<string>('');
+  const [calendarOpenFor, setCalendarOpenFor] = useState<'start' | 'end' | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+
+  const dateRangePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dateRangePickerRef.current && !dateRangePickerRef.current.contains(event.target as Node)) {
+        setCalendarOpenFor(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleDateSelect = (date: string) => {
+    if (calendarOpenFor === 'start') {
+        setExportStartDate(date);
+        if (exportEndDate && date > exportEndDate) {
+            setExportEndDate('');
+        }
+        setCalendarOpenFor('end');
+        setCalendarMonth(new Date(date + 'T00:00:00'));
+    } else if (calendarOpenFor === 'end') {
+        setExportEndDate(date);
+        setCalendarOpenFor(null);
+    }
+  };
+
+  const toggleCalendar = (target: 'start' | 'end') => {
+    if (calendarOpenFor === target) {
+      setCalendarOpenFor(null);
+    } else {
+      const dateToUse = target === 'start' ? exportStartDate : exportEndDate;
+      const fallbackDate = target === 'end' && exportStartDate ? exportStartDate : new Date().toISOString().split('T')[0];
+      const initialDate = dateToUse || fallbackDate;
+      
+      const validDateString = initialDate.includes('T') ? initialDate : initialDate + 'T00:00:00';
+      setCalendarMonth(new Date(validDateString));
+      setCalendarOpenFor(target);
+    }
+  };
+
 
   const designations = useMemo(() => [...new Set(users.map(u => u.designation).filter(Boolean))], [users]);
 
@@ -241,10 +286,60 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-slate-800 dark:text-white">{title}</h1>
          {onExport && (
-             <button onClick={onExport} className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition flex items-center gap-2">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                 <span>Export</span>
-             </button>
+            <div ref={dateRangePickerRef} className="flex items-center gap-2 p-2 rounded-lg bg-slate-100 dark:bg-slate-700/50">
+              <label className="text-sm font-medium text-slate-600 dark:text-slate-300">Export Range:</label>
+              <div className="relative">
+                  <button
+                      type="button"
+                      onClick={() => toggleCalendar('start')}
+                      className="p-2 w-36 text-left bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm flex justify-between items-center"
+                  >
+                      {exportStartDate ? exportStartDate : <span className="text-slate-400">Start Date</span>}
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  </button>
+                  {calendarOpenFor === 'start' && (
+                      <div className="absolute top-full mt-2 z-10 left-0">
+                          <Calendar
+                              currentMonth={calendarMonth}
+                              onMonthChange={setCalendarMonth}
+                              selectedDate={exportStartDate}
+                              onDateSelect={handleDateSelect}
+                              maxDate={exportEndDate || undefined}
+                          />
+                      </div>
+                  )}
+              </div>
+              <span className="text-slate-500">to</span>
+              <div className="relative">
+                  <button
+                      type="button"
+                      onClick={() => toggleCalendar('end')}
+                      className="p-2 w-36 text-left bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm flex justify-between items-center"
+                  >
+                      {exportEndDate ? exportEndDate : <span className="text-slate-400">End Date</span>}
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  </button>
+                  {calendarOpenFor === 'end' && (
+                      <div className="absolute top-full mt-2 z-10 right-0">
+                          <Calendar
+                              currentMonth={calendarMonth}
+                              onMonthChange={setCalendarMonth}
+                              selectedDate={exportEndDate}
+                              onDateSelect={handleDateSelect}
+                              minDate={exportStartDate || undefined}
+                          />
+                      </div>
+                  )}
+              </div>
+              <button 
+                  onClick={() => onExport(exportStartDate, exportEndDate)}
+                  disabled={!exportStartDate || !exportEndDate}
+                  className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition flex items-center gap-2 disabled:bg-slate-400 disabled:cursor-not-allowed"
+              >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  <span>Export</span>
+              </button>
+          </div>
         )}
       </div>
       

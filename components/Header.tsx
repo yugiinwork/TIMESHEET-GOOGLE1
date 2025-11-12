@@ -8,14 +8,32 @@ interface HeaderProps {
   onToggleTheme: () => void;
   userNotifications: Notification[];
   onToggleNotifications: () => void;
+  onOpenCatalystInsights: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ user, theme, onToggleTheme, userNotifications, onToggleNotifications }) => {
+export const Header: React.FC<HeaderProps> = ({ user, theme, onToggleTheme, userNotifications, onToggleNotifications, onOpenCatalystInsights }) => {
   const unreadCount = userNotifications.filter(n => !n.read).length;
 
   return (
     <header className="bg-white dark:bg-slate-800 shadow-sm p-4 flex justify-end items-center border-b border-slate-200 dark:border-slate-700">
       <div className="flex items-center space-x-4">
+        <button 
+          onClick={onOpenCatalystInsights}
+          className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500 relative group"
+          aria-label="Generate AI Insights"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+            </span>
+            <div className="absolute top-full mt-2 -translate-x-1/2 left-1/2 w-max bg-slate-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                Catalyst Insights
+            </div>
+        </button>
+
         <button 
           onClick={onToggleTheme} 
           className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
