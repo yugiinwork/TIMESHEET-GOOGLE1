@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Timesheet, LeaveRequest, Status, User, Role, Project, Task, LeaveEntry } from '../types';
 import { Calendar } from './Calendar';
@@ -124,6 +125,24 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
 
   const dateRangePickerRef = useRef<HTMLDivElement>(null);
 
+  const getUserName = (userId: number) => users.find(u => u.id === userId)?.name || 'Unknown';
+  const isTimesheet = (item: ReviewItem): item is Timesheet => 'projectWork' in item;
+  const isLeave = (item: ReviewItem): item is LeaveRequest => 'leaveEntries' in item;
+
+  const highlightedDates = useMemo(() => {
+    const dates = new Set<string>();
+    items.forEach(item => {
+        if (isTimesheet(item)) {
+            dates.add(item.date);
+        } else if (isLeave(item)) {
+            item.leaveEntries.forEach(entry => {
+                dates.add(entry.date);
+            });
+        }
+    });
+    return dates;
+  }, [items]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dateRangePickerRef.current && !dateRangePickerRef.current.contains(event.target as Node)) {
@@ -164,10 +183,6 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
 
 
   const designations = useMemo(() => [...new Set(users.map(u => u.designation).filter(Boolean))], [users]);
-
-  const getUserName = (userId: number) => users.find(u => u.id === userId)?.name || 'Unknown';
-  const isTimesheet = (item: ReviewItem): item is Timesheet => 'projectWork' in item;
-  const isLeave = (item: ReviewItem): item is LeaveRequest => 'leaveEntries' in item;
   
   const getTimesheetSummary = (item: Timesheet) => {
     const totalHours = item.projectWork.reduce((sum, pw) => sum + pw.workEntries.reduce((s, we) => s + we.hours, 0), 0);
@@ -305,6 +320,7 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
                               selectedDate={exportStartDate}
                               onDateSelect={handleDateSelect}
                               maxDate={exportEndDate || undefined}
+                              highlightedDates={highlightedDates}
                           />
                       </div>
                   )}
@@ -327,6 +343,7 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
                               selectedDate={exportEndDate}
                               onDateSelect={handleDateSelect}
                               minDate={exportStartDate || undefined}
+                              highlightedDates={highlightedDates}
                           />
                       </div>
                   )}
