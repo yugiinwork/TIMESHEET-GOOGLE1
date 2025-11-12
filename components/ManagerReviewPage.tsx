@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Timesheet, LeaveRequest, Status, User, Role, Project, Task, LeaveEntry } from '../types';
 import { Calendar } from './Calendar';
@@ -116,18 +115,25 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
   const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [roleFilter, setRoleFilter] = useState<Role | ''>('');
-  const [designationFilter, setDesignationFilter] = useState<string>('');
+  const [projectFilter, setProjectFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('name_asc');
   const [exportStartDate, setExportStartDate] = useState<string>('');
   const [exportEndDate, setExportEndDate] = useState<string>('');
   const [calendarOpenFor, setCalendarOpenFor] = useState<'start' | 'end' | null>(null);
-  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [exportCalendarMonth, setExportCalendarMonth] = useState(new Date());
+  
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string | null>(new Date().toISOString().split('T')[0]);
+  const [dateFilterCalendarMonth, setDateFilterCalendarMonth] = useState(new Date());
+  const [isDateFilterCalendarOpen, setIsDateFilterCalendarOpen] = useState(false);
 
   const dateRangePickerRef = useRef<HTMLDivElement>(null);
+  const dateFilterRef = useRef<HTMLDivElement>(null);
 
   const getUserName = (userId: number) => users.find(u => u.id === userId)?.name || 'Unknown';
   const isTimesheet = (item: ReviewItem): item is Timesheet => 'projectWork' in item;
   const isLeave = (item: ReviewItem): item is LeaveRequest => 'leaveEntries' in item;
+  const isTimesheetPage = useMemo(() => items.length > 0 && isTimesheet(items[0]), [items]);
+
 
   const highlightedDates = useMemo(() => {
     const dates = new Set<string>();
@@ -148,24 +154,32 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
       if (dateRangePickerRef.current && !dateRangePickerRef.current.contains(event.target as Node)) {
         setCalendarOpenFor(null);
       }
+      if (dateFilterRef.current && !dateFilterRef.current.contains(event.target as Node)) {
+        setIsDateFilterCalendarOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleDateSelect = (date: string) => {
+  const handleExportDateSelect = (date: string) => {
     if (calendarOpenFor === 'start') {
         setExportStartDate(date);
         if (exportEndDate && date > exportEndDate) {
             setExportEndDate('');
         }
         setCalendarOpenFor('end');
-        setCalendarMonth(new Date(date + 'T00:00:00'));
+        setExportCalendarMonth(new Date(date + 'T00:00:00'));
     } else if (calendarOpenFor === 'end') {
         setExportEndDate(date);
         setCalendarOpenFor(null);
     }
   };
+  
+  const handleDateFilterSelect = (date: string) => {
+    setSelectedDateFilter(date);
+    setIsDateFilterCalendarOpen(false);
+  }
 
   const toggleCalendar = (target: 'start' | 'end') => {
     if (calendarOpenFor === target) {
@@ -176,13 +190,10 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
       const initialDate = dateToUse || fallbackDate;
       
       const validDateString = initialDate.includes('T') ? initialDate : initialDate + 'T00:00:00';
-      setCalendarMonth(new Date(validDateString));
+      setExportCalendarMonth(new Date(validDateString));
       setCalendarOpenFor(target);
     }
   };
-
-
-  const designations = useMemo(() => [...new Set(users.map(u => u.designation).filter(Boolean))], [users]);
   
   const getTimesheetSummary = (item: Timesheet) => {
     const totalHours = item.projectWork.reduce((sum, pw) => sum + pw.workEntries.reduce((s, we) => s + we.hours, 0), 0);
@@ -191,7 +202,21 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
   }
 
   const processedItems = useMemo(() => {
-    const itemsWithUser = items.map(item => ({
+    let filteredItems = items;
+
+    if (selectedDateFilter) {
+      filteredItems = items.filter(item => {
+        if (isTimesheet(item)) {
+          return item.date === selectedDateFilter;
+        }
+        if (isLeave(item)) {
+          return item.leaveEntries.some(entry => entry.date === selectedDateFilter);
+        }
+        return false;
+      });
+    }
+
+    const itemsWithUser = filteredItems.map(item => ({
       ...item,
       user: users.find(u => u.id === item.userId),
     })).filter(item => item.user);
@@ -219,8 +244,12 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
     if (roleFilter) {
       filtered = filtered.filter(item => item.user!.role === roleFilter);
     }
-    if (designationFilter) {
-      filtered = filtered.filter(item => item.user!.designation === designationFilter);
+    
+    if (isTimesheetPage && projectFilter) {
+      const projectId = Number(projectFilter);
+      filtered = filtered.filter(item => 
+          (item as Timesheet).projectWork.some(pw => pw.projectId === projectId)
+      );
     }
 
     filtered.sort((a, b) => {
@@ -234,7 +263,7 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
     });
 
     return filtered;
-  }, [items, users, roleFilter, designationFilter, sortBy, searchQuery, projects]);
+  }, [items, users, roleFilter, sortBy, searchQuery, projects, selectedDateFilter, projectFilter, isTimesheetPage]);
 
   const pendingItems = processedItems.filter(i => i.status === Status.PENDING);
   const historyItems = processedItems.filter(i => i.status !== Status.PENDING);
@@ -287,7 +316,7 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
              {data.length === 0 && (
                 <tr>
                     <td colSpan={isHistory ? 5 : 4} className="text-center py-10 text-slate-500 dark:text-slate-400">
-                        No {activeTab.toLowerCase()} requests found.
+                         {selectedDateFilter ? `No requests found for ${selectedDateFilter}.` : `No ${activeTab.toLowerCase()} requests found.`}
                     </td>
                 </tr>
             )}
@@ -315,10 +344,10 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
                   {calendarOpenFor === 'start' && (
                       <div className="absolute top-full mt-2 z-10 left-0">
                           <Calendar
-                              currentMonth={calendarMonth}
-                              onMonthChange={setCalendarMonth}
+                              currentMonth={exportCalendarMonth}
+                              onMonthChange={setExportCalendarMonth}
                               selectedDate={exportStartDate}
-                              onDateSelect={handleDateSelect}
+                              onDateSelect={handleExportDateSelect}
                               maxDate={exportEndDate || undefined}
                               highlightedDates={highlightedDates}
                           />
@@ -338,10 +367,10 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
                   {calendarOpenFor === 'end' && (
                       <div className="absolute top-full mt-2 z-10 right-0">
                           <Calendar
-                              currentMonth={calendarMonth}
-                              onMonthChange={setCalendarMonth}
+                              currentMonth={exportCalendarMonth}
+                              onMonthChange={setExportCalendarMonth}
                               selectedDate={exportEndDate}
-                              onDateSelect={handleDateSelect}
+                              onDateSelect={handleExportDateSelect}
                               minDate={exportStartDate || undefined}
                               highlightedDates={highlightedDates}
                           />
@@ -359,59 +388,98 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
           </div>
         )}
       </div>
-      
-      <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg mb-6">
-          <div className="p-4 flex flex-wrap items-center gap-4 text-sm border-b border-slate-200 dark:border-slate-700">
-             <div className="relative flex-grow min-w-[200px]">
-                 <input
-                     type="search"
-                     placeholder="Search by name, project, reason..."
-                     value={searchQuery}
-                     onChange={(e) => setSearchQuery(e.target.value)}
-                     className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                 />
-                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                 </div>
-             </div>
-            <div className="flex-grow min-w-[150px]">
-                <label htmlFor="role-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Role</label>
-                <select id="role-filter" value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | '')} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
-                    <option value="">All Roles</option>
-                    {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-            </div>
-            <div className="flex-grow min-w-[150px]">
-                <label htmlFor="designation-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Designation</label>
-                <select id="designation-filter" value={designationFilter} onChange={e => setDesignationFilter(e.target.value)} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
-                    <option value="">All Designations</option>
-                    {designations.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-            </div>
-            <div className="flex-grow min-w-[200px]">
-                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Sort By</label>
-                <div className="flex">
-                    <select value={sortBy.split('_')[0]} onChange={e => setSortBy(`${e.target.value}_${sortBy.split('_')[1]}`)} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-l-md">
-                        <option value="name">Name</option>
-                        <option value="empId">Employee ID</option>
-                    </select>
-                    <button onClick={() => setSortBy(`${sortBy.split('_')[0]}_asc`)} className={`px-3 py-2 border ${sortBy.endsWith('_asc') ? 'bg-sky-500 text-white border-sky-500' : 'bg-white dark:bg-slate-600 border-slate-300 dark:border-slate-600'}`}>▲</button>
-                    <button onClick={() => setSortBy(`${sortBy.split('_')[0]}_desc`)} className={`px-3 py-2 border rounded-r-md ${sortBy.endsWith('_desc') ? 'bg-sky-500 text-white border-sky-500' : 'bg-white dark:bg-slate-600 border-slate-300 dark:border-slate-600'}`}>▼</button>
+
+      <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-4 mb-6">
+          <h3 className="font-bold text-lg mb-2 text-slate-800 dark:text-white">Filter by Date</h3>
+          <div className="flex items-center gap-4">
+            <div className="relative flex-grow" ref={dateFilterRef}>
+              <button
+                type="button"
+                onClick={() => setIsDateFilterCalendarOpen(prev => !prev)}
+                className="p-2 w-full text-left bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm flex justify-between items-center"
+              >
+                <span>{selectedDateFilter ? selectedDateFilter : 'Select a date'}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              </button>
+              {isDateFilterCalendarOpen && (
+                <div className="absolute top-full mt-2 z-10">
+                  <Calendar
+                      currentMonth={dateFilterCalendarMonth}
+                      onMonthChange={setDateFilterCalendarMonth}
+                      selectedDate={selectedDateFilter || ''}
+                      onDateSelect={handleDateFilterSelect}
+                      highlightedDates={highlightedDates}
+                  />
                 </div>
+              )}
             </div>
-        </div>
-        <div className="border-b border-slate-200 dark:border-slate-700">
-            <nav className="-mb-px flex space-x-6 px-4" aria-label="Tabs">
-                <button onClick={() => setActiveTab('Pending')} className={`${activeTab === 'Pending' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'} whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
-                    Pending ({pendingItems.length})
+            {selectedDateFilter && (
+                <button 
+                    onClick={() => setSelectedDateFilter(null)} 
+                    className="text-sm font-semibold text-red-500 hover:text-red-700"
+                    aria-label="Clear date filter"
+                >
+                    Clear
                 </button>
-                <button onClick={() => setActiveTab('History')} className={`${activeTab === 'History' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'} whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
-                    History ({historyItems.length})
-                </button>
-            </nav>
-        </div>
-        {activeTab === 'Pending' ? renderTable(pendingItems, false) : renderTable(historyItems, true)}
+            )}
+          </div>
       </div>
+
+      <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg">
+          <div className="p-4 flex flex-wrap items-center gap-4 text-sm border-b border-slate-200 dark:border-slate-700">
+              <div className="relative flex-grow min-w-[200px]">
+                  <input
+                      type="search"
+                      placeholder="Search by name, project, reason..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  </div>
+              </div>
+              <div className="flex-grow min-w-[150px]">
+                  <label htmlFor="role-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Role</label>
+                  <select id="role-filter" value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | '')} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                      <option value="">All Roles</option>
+                      {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+              </div>
+              {isTimesheetPage && (
+                  <div className="flex-grow min-w-[150px]">
+                      <label htmlFor="project-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Project</label>
+                      <select id="project-filter" value={projectFilter} onChange={e => setProjectFilter(e.target.value)} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                          <option value="">All Projects</option>
+                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                  </div>
+              )}
+              <div className="flex-grow min-w-[200px]">
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Sort By</label>
+                  <div className="flex">
+                      <select value={sortBy.split('_')[0]} onChange={e => setSortBy(`${e.target.value}_${sortBy.split('_')[1]}`)} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-l-md">
+                          <option value="name">Name</option>
+                          <option value="empId">Employee ID</option>
+                      </select>
+                      <button onClick={() => setSortBy(`${sortBy.split('_')[0]}_asc`)} className={`px-3 py-2 border ${sortBy.endsWith('_asc') ? 'bg-sky-500 text-white border-sky-500' : 'bg-white dark:bg-slate-600 border-slate-300 dark:border-slate-600'}`}>▲</button>
+                      <button onClick={() => setSortBy(`${sortBy.split('_')[0]}_desc`)} className={`px-3 py-2 border rounded-r-md ${sortBy.endsWith('_desc') ? 'bg-sky-500 text-white border-sky-500' : 'bg-white dark:bg-slate-600 border-slate-300 dark:border-slate-600'}`}>▼</button>
+                  </div>
+              </div>
+          </div>
+          <div className="border-b border-slate-200 dark:border-slate-700">
+              <nav className="-mb-px flex space-x-6 px-4" aria-label="Tabs">
+                  <button onClick={() => setActiveTab('Pending')} className={`${activeTab === 'Pending' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'} whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
+                      Pending ({pendingItems.length})
+                  </button>
+                  <button onClick={() => setActiveTab('History')} className={`${activeTab === 'History' ? 'border-sky-500 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'} whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm`}>
+                      History ({historyItems.length})
+                  </button>
+              </nav>
+          </div>
+          {activeTab === 'Pending' ? renderTable(pendingItems, false) : renderTable(historyItems, true)}
+      </div>
+      
 
       {selectedItem && <DetailsModal item={selectedItem} users={users} projects={projects} onClose={() => setSelectedItem(null)}/>}
     </div>
