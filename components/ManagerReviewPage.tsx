@@ -389,56 +389,59 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
         )}
       </div>
 
-      <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-4 mb-6">
-          <h3 className="font-bold text-lg mb-2 text-slate-800 dark:text-white">Filter by Date</h3>
-          <div className="flex items-center gap-4">
-            <div className="relative flex-grow" ref={dateFilterRef}>
-              <button
-                type="button"
-                onClick={() => setIsDateFilterCalendarOpen(prev => !prev)}
-                className="p-2 w-full text-left bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm flex justify-between items-center"
-              >
-                <span>{selectedDateFilter ? selectedDateFilter : 'Select a date'}</span>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              </button>
-              {isDateFilterCalendarOpen && (
-                <div className="absolute top-full mt-2 z-10">
-                  <Calendar
-                      currentMonth={dateFilterCalendarMonth}
-                      onMonthChange={setDateFilterCalendarMonth}
-                      selectedDate={selectedDateFilter || ''}
-                      onDateSelect={handleDateFilterSelect}
-                      highlightedDates={highlightedDates}
-                  />
-                </div>
-              )}
-            </div>
-            {selectedDateFilter && (
-                <button 
-                    onClick={() => setSelectedDateFilter(null)} 
-                    className="text-sm font-semibold text-red-500 hover:text-red-700"
-                    aria-label="Clear date filter"
-                >
-                    Clear
-                </button>
-            )}
-          </div>
-      </div>
-
       <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg">
-          <div className="p-4 flex flex-wrap items-center gap-4 text-sm border-b border-slate-200 dark:border-slate-700">
+          <div className="p-4 flex flex-wrap items-end gap-4 text-sm border-b border-slate-200 dark:border-slate-700">
               <div className="relative flex-grow min-w-[200px]">
-                  <input
-                      type="search"
-                      placeholder="Search by name, project, reason..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  <label htmlFor="search-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Search</label>
+                  <div className="relative">
+                    <input
+                        id="search-filter"
+                        type="search"
+                        placeholder="By name, project, reason..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    </div>
                   </div>
               </div>
+              <div className="flex-grow min-w-[150px]">
+                <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Filter by Date</label>
+                <div className="relative" ref={dateFilterRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsDateFilterCalendarOpen(prev => !prev)}
+                    className="p-2 w-full text-left bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md text-sm flex justify-between items-center"
+                  >
+                    <span>{selectedDateFilter ? selectedDateFilter : 'All Dates'}</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                  </button>
+                  {isDateFilterCalendarOpen && (
+                    <div className="absolute top-full mt-2 z-10">
+                      <Calendar
+                          currentMonth={dateFilterCalendarMonth}
+                          onMonthChange={setDateFilterCalendarMonth}
+                          selectedDate={selectedDateFilter || ''}
+                          onDateSelect={handleDateFilterSelect}
+                          highlightedDates={highlightedDates}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              {selectedDateFilter && (
+                <div className="pb-1">
+                    <button 
+                        onClick={() => setSelectedDateFilter(null)} 
+                        className="text-xs font-semibold text-red-500 hover:text-red-700"
+                        aria-label="Clear date filter"
+                    >
+                        Clear
+                    </button>
+                </div>
+              )}
               <div className="flex-grow min-w-[150px]">
                   <label htmlFor="role-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Role</label>
                   <select id="role-filter" value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | '')} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
