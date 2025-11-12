@@ -103,7 +103,22 @@ export interface Task {
     completionDate?: string;
 }
 
+export type View = 'DASHBOARD' | 'PROFILE' | 'TIMESHEETS' | 'LEAVE' | 'TEAM_TIMESHEETS' | 'TEAM_LEAVE' | 'PROJECTS' | 'USERS' | 'TASKS';
+
+// For persistent, user-specific notifications
 export interface Notification {
   id: number;
+  userId: number; // The user who should receive the notification
+  title: string;
   message: string;
+  read: boolean;
+  linkTo?: View;
+  createdAt: string; // ISO string
+}
+
+// For ephemeral, on-screen toasts
+export interface ToastNotification {
+  id: number;
+  message: string;
+  title?: string;
 }

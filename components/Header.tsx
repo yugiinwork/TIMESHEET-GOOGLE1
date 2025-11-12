@@ -1,15 +1,18 @@
 
-
 import React from 'react';
-import { User } from '../types';
+import { User, Notification } from '../types';
 
 interface HeaderProps {
   user: User;
   theme: string;
   onToggleTheme: () => void;
+  userNotifications: Notification[];
+  onToggleNotifications: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ user, theme, onToggleTheme }) => {
+export const Header: React.FC<HeaderProps> = ({ user, theme, onToggleTheme, userNotifications, onToggleNotifications }) => {
+  const unreadCount = userNotifications.filter(n => !n.read).length;
+
   return (
     <header className="bg-white dark:bg-slate-800 shadow-sm p-4 flex justify-end items-center border-b border-slate-200 dark:border-slate-700">
       <div className="flex items-center space-x-4">
@@ -28,6 +31,23 @@ export const Header: React.FC<HeaderProps> = ({ user, theme, onToggleTheme }) =>
             </svg>
           )}
         </button>
+
+        <div className="relative">
+            <button 
+              onClick={onToggleNotifications}
+              className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+              aria-label="Toggle notifications"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                        {unreadCount}
+                    </span>
+                )}
+            </button>
+        </div>
+
+
         <div className="text-right">
           <p className="font-semibold text-slate-800 dark:text-slate-200">{user.name}</p>
           <p className="text-sm text-sky-600 dark:text-sky-400">{user.role}</p>

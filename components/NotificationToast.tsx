@@ -2,10 +2,11 @@ import React, { useEffect } from 'react';
 
 interface NotificationToastProps {
   message: string;
+  title?: string;
   onClose: () => void;
 }
 
-export const NotificationToast: React.FC<NotificationToastProps> = ({ message, onClose }) => {
+export const NotificationToast: React.FC<NotificationToastProps> = ({ message, title, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
@@ -24,7 +25,7 @@ export const NotificationToast: React.FC<NotificationToastProps> = ({ message, o
             </svg>
           </div>
           <div className="ml-3 w-0 flex-1 pt-0.5">
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">New Task Assigned</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{title || 'Notification'}</p>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{message}</p>
           </div>
           <div className="ml-4 flex-shrink-0 flex">

@@ -9,7 +9,7 @@ interface DashboardPageProps {
   timesheets: Timesheet[];
   leaveRequests: LeaveRequest[];
   projects: Project[];
-  bestEmployeeId: number | null;
+  bestEmployeeIds: number[];
   setView: (view: any) => void;
 }
 
@@ -25,7 +25,7 @@ const StatsCard: React.FC<{ title: string; value: string | number; icon: React.R
     </div>
 );
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users, timesheets, leaveRequests, projects, bestEmployeeId, setView }) => {
+export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users, timesheets, leaveRequests, projects, bestEmployeeIds, setView }) => {
     
     // --- Stat Calculations ---
     const myPendingTimesheets = timesheets.filter(t => t.userId === currentUser.id && t.status === Status.PENDING).length;
@@ -143,7 +143,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users
                      )}
                 </div>
                 <div className="space-y-6">
-                    <BestEmployeeWidget bestEmployeeId={bestEmployeeId} users={users} />
+                    <BestEmployeeWidget bestEmployeeIds={bestEmployeeIds} users={users} />
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md">
                         <h2 className="text-xl font-bold mb-4">Project Overview</h2>
                         <ul className="space-y-4">

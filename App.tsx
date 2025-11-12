@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, Notification } from './types';
+import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, ToastNotification, Notification, View } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ProfilePage } from './components/ProfilePage';
@@ -13,9 +13,8 @@ import { TasksPage } from './components/TasksPage';
 import { SetBestEmployeeModal } from './components/SetBestEmployeeModal';
 import { DashboardPage } from './components/DashboardPage';
 import { NotificationToast } from './components/NotificationToast';
+import { NotificationCenter } from './components/NotificationCenter';
 import { cloudscaleApi } from './api/cloudscale';
-
-type View = 'DASHBOARD' | 'PROFILE' | 'TIMESHEETS' | 'LEAVE' | 'TEAM_TIMESHEETS' | 'TEAM_LEAVE' | 'PROJECTS' | 'USERS' | 'TASKS';
 
 // Declare XLSX for the linter since it's loaded from a script tag.
 declare var XLSX: any;
@@ -26,7 +25,8 @@ const emptyState = {
   leaveRequests: [],
   projects: [],
   tasks: [],
-  bestEmployeeId: null,
+  notifications: [],
+  bestEmployeeIds: [],
 };
 
 
@@ -37,9 +37,11 @@ const App: React.FC = () => {
   
   // --- Local UI State ---
   const [isBestEmployeeModalOpen, setIsBestEmployeeModalOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [toastNotifications, setToastNotifications] = useState<ToastNotification[]>([]);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [loading, setLoading] = useState(true);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+
 
   // --- Real-time Global State ---
   const [appData, setAppData] = useState(emptyState);
@@ -72,7 +74,7 @@ const App: React.FC = () => {
   }, []);
 
   // --- Destructure data for easier access ---
-  const { users, timesheets, leaveRequests, projects, tasks, bestEmployeeId } = appData;
+  const { users, timesheets, leaveRequests, projects, tasks, notifications, bestEmployeeIds } = appData;
 
   // --- Create async setters that update global state via API ---
   const setUsers = async (value: React.SetStateAction<User[]>) => {
@@ -99,6 +101,11 @@ const App: React.FC = () => {
     const newTasks = typeof value === 'function' ? value(tasks) : value;
     await cloudscaleApi.updateTasks(newTasks);
     setAppData(prev => ({ ...prev, tasks: newTasks }));
+  };
+  const setNotifications = async (value: React.SetStateAction<Notification[]>) => {
+    const newNotifications = typeof value === 'function' ? value(notifications) : value;
+    await cloudscaleApi.updateNotifications(newNotifications);
+    setAppData(prev => ({ ...prev, notifications: newNotifications }));
   };
 
   
@@ -305,15 +312,42 @@ const App: React.FC = () => {
     });
     downloadExcel('leave_requests', wb);
   };
+  
+  // --- Notification System ---
 
-  const removeNotification = (id: number) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  const removeToastNotification = (id: number) => {
+    setToastNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const addNotification = (message: string) => {
-    const newNotification = { id: Date.now(), message };
-    setNotifications(prev => [...prev, newNotification]);
+  const addToastNotification = (message: string, title?: string) => {
+    const newToast = { id: Date.now(), message, title };
+    setToastNotifications(prev => [...prev, newToast]);
   };
+
+  const addNotification = async (payload: Omit<Notification, 'id' | 'read' | 'createdAt'>) => {
+    const newNotification: Notification = {
+        ...payload,
+        id: Date.now(),
+        read: false,
+        createdAt: new Date().toISOString(),
+    };
+    await setNotifications(prev => [...prev, newNotification]);
+  }
+  
+  const markNotificationAsRead = async (notificationId: number) => {
+      await setNotifications(prev => prev.map(n => n.id === notificationId ? {...n, read: true} : n));
+  };
+
+  const markAllNotificationsAsRead = async () => {
+      await setNotifications(prev => prev.map(n => n.userId === currentUser?.id ? {...n, read: true} : n));
+  };
+
+  const userNotifications = useMemo(() => {
+    if (!currentUser) return [];
+    return notifications
+        .filter(n => n.userId === currentUser.id)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [notifications, currentUser]);
 
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
@@ -464,9 +498,9 @@ const App: React.FC = () => {
     await setUsers(prev => prev.filter(u => u.id !== userId));
   };
   
-  const handleSetBestEmployee = async (userId: number) => {
-    await cloudscaleApi.updateBestEmployee(userId);
-    setAppData(prev => ({...prev, bestEmployeeId: userId}));
+  const handleSetBestEmployees = async (userIds: number[]) => {
+    await cloudscaleApi.updateBestEmployees(userIds);
+    setAppData(prev => ({...prev, bestEmployeeIds: userIds}));
     setIsBestEmployeeModalOpen(false);
   }
 
@@ -482,26 +516,32 @@ const App: React.FC = () => {
             timesheets={timesheets}
             leaveRequests={leaveRequests}
             projects={companyProjects}
-            bestEmployeeId={bestEmployeeId}
+            bestEmployeeIds={bestEmployeeIds}
             setView={setView}
         />;
       case 'PROFILE':
         return <ProfilePage user={currentUser} onUpdateUser={handleUpdateUser} currentUser={currentUser} />;
       case 'TIMESHEETS':
         return <TimesheetPage 
-            userId={currentUser.id} 
+            currentUser={currentUser}
+            users={users}
             timesheets={timesheets.filter(t => t.userId === currentUser.id)}
             setTimesheets={setTimesheets}
             projects={companyProjects}
             tasks={tasks}
             onExport={canExport ? handleExportTimesheets : undefined}
+            addToastNotification={addToastNotification}
+            addNotification={addNotification}
         />;
       case 'LEAVE':
         return <LeaveRequestPage 
-            userId={currentUser.id}
+            currentUser={currentUser}
+            users={users}
             leaveRequests={leaveRequests.filter(l => l.userId === currentUser.id)}
             setLeaveRequests={setLeaveRequests}
             onExport={canExport ? handleExportLeaveRequests : undefined}
+            addToastNotification={addToastNotification}
+            addNotification={addNotification}
         />;
        case 'TASKS':
         const userVisibleProjects = companyProjects.filter(p => 
@@ -515,6 +555,7 @@ const App: React.FC = () => {
           users={companyUsers}
           currentUser={currentUser}
           setTasks={setTasks}
+          addToastNotification={addToastNotification}
           addNotification={addNotification}
         />
       case 'TEAM_TIMESHEETS': {
@@ -599,7 +640,13 @@ const App: React.FC = () => {
         onLogout={handleLogout}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={currentUser} theme={theme} onToggleTheme={toggleTheme} />
+        <Header 
+            user={currentUser} 
+            theme={theme} 
+            onToggleTheme={toggleTheme} 
+            userNotifications={userNotifications}
+            onToggleNotifications={() => setIsNotificationCenterOpen(prev => !prev)}
+        />
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
           {renderView()}
         </main>
@@ -608,15 +655,26 @@ const App: React.FC = () => {
         <SetBestEmployeeModal
             users={companyUsers.filter(u => u.role === Role.EMPLOYEE || u.role === Role.TEAM_LEADER)}
             onClose={() => setIsBestEmployeeModalOpen(false)}
-            onSet={handleSetBestEmployee}
+            onSet={handleSetBestEmployees}
+            selectedIds={bestEmployeeIds}
         />
       )}
+      <NotificationCenter
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        notifications={userNotifications}
+        setView={setView}
+        markNotificationAsRead={markNotificationAsRead}
+        markAllNotificationsAsRead={markAllNotificationsAsRead}
+        unreadCount={userNotifications.filter(n => !n.read).length}
+      />
       <div className="fixed top-5 right-5 z-[100] space-y-2">
-        {notifications.map(notification => (
+        {toastNotifications.map(notification => (
             <NotificationToast
                 key={notification.id}
                 message={notification.message}
-                onClose={() => removeNotification(notification.id)}
+                title={notification.title}
+                onClose={() => removeToastNotification(notification.id)}
             />
         ))}
     </div>
@@ -625,4 +683,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-    

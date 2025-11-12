@@ -1,12 +1,15 @@
 
 import React, { useState, useMemo } from 'react';
-import { LeaveRequest, Status, LeaveType, HalfDaySession, LeaveEntry } from '../types';
+import { LeaveRequest, Status, LeaveType, HalfDaySession, LeaveEntry, User, View } from '../types';
 
 interface LeaveRequestPageProps {
-  userId: number;
+  currentUser: User;
+  users: User[];
   leaveRequests: LeaveRequest[];
   setLeaveRequests: (updater: React.SetStateAction<LeaveRequest[]>) => Promise<void>;
   onExport?: () => void;
+  addToastNotification: (message: string, title?: string) => void;
+  addNotification: (payload: { userId: number; title: string; message: string; linkTo?: View; }) => Promise<void>;
 }
 
 const emptyLeaveRequest = (userId: number): Omit<LeaveRequest, 'id'> => ({
@@ -19,9 +22,9 @@ const emptyLeaveRequest = (userId: number): Omit<LeaveRequest, 'id'> => ({
   status: Status.PENDING,
 });
 
-export const LeaveRequestPage: React.FC<LeaveRequestPageProps> = ({ userId, leaveRequests, setLeaveRequests, onExport }) => {
+export const LeaveRequestPage: React.FC<LeaveRequestPageProps> = ({ currentUser, users, leaveRequests, setLeaveRequests, onExport, addToastNotification, addNotification }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingRequest, setEditingRequest] = useState<Omit<LeaveRequest, 'id'> | LeaveRequest>(emptyLeaveRequest(userId));
+  const [editingRequest, setEditingRequest] = useState<Omit<LeaveRequest, 'id'> | LeaveRequest>(emptyLeaveRequest(currentUser.id));
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredLeaveRequests = useMemo(() => {
@@ -33,7 +36,7 @@ export const LeaveRequestPage: React.FC<LeaveRequestPageProps> = ({ userId, leav
   }, [leaveRequests, searchQuery]);
 
   const openModal = (request?: LeaveRequest) => {
-    setEditingRequest(request ? JSON.parse(JSON.stringify(request)) : emptyLeaveRequest(userId));
+    setEditingRequest(request ? JSON.parse(JSON.stringify(request)) : emptyLeaveRequest(currentUser.id));
     setIsModalOpen(true);
   };
 
@@ -85,12 +88,26 @@ export const LeaveRequestPage: React.FC<LeaveRequestPageProps> = ({ userId, leav
     }
     if ('id' in editingRequest) {
       await setLeaveRequests(prev => prev.map(r => r.id === editingRequest.id ? (editingRequest as LeaveRequest) : r));
+      addToastNotification('Your leave request has been updated.', 'Leave Request Updated');
     } else {
       const newRequest: LeaveRequest = {
         id: Date.now(),
         ...editingRequest,
       } as LeaveRequest;
       await setLeaveRequests(prev => [...prev, newRequest]);
+      
+      // For the user submitting
+      addToastNotification('Your leave request has been submitted for approval.', 'Leave Request Submitted');
+      
+      // For the manager/leader
+      if (currentUser.managerId) {
+        await addNotification({
+            userId: currentUser.managerId,
+            title: 'New Leave Request',
+            message: `${currentUser.name} has submitted a leave request for approval.`,
+            linkTo: 'TEAM_LEAVE',
+        });
+      }
     }
     closeModal();
   };

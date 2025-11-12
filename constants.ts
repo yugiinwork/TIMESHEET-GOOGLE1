@@ -1,4 +1,4 @@
-import { Role, Status, User, Timesheet, LeaveRequest, Project, Task, TaskStatus, ProjectStatus } from './types';
+import { Role, Status, User, Timesheet, LeaveRequest, Project, Task, TaskStatus, ProjectStatus, Notification } from './types';
 
 export const USERS: User[] = [
   { 
@@ -66,3 +66,5 @@ export const TASKS: Task[] = [
     { id: 4, projectId: 2, title: 'Upgrade CI/CD Pipeline', description: 'Migrate the existing pipeline to the new infrastructure.', assignedTo: [1], status: 'In Progress' as TaskStatus, deadline: '2023-11-15' },
     { id: 5, projectId: 2, title: 'End-to-end testing for Pipeline', description: 'Test the new CI/CD pipeline.', assignedTo: [5], status: 'To Do' as TaskStatus },
 ];
+
+export const NOTIFICATIONS: Notification[] = [];

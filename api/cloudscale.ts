@@ -1,6 +1,6 @@
 
-import { User, Timesheet, LeaveRequest, Project, Task } from '../types';
-import { USERS, TIMESHEETS, LEAVE_REQUESTS, PROJECTS, TASKS } from '../constants';
+import { User, Timesheet, LeaveRequest, Project, Task, Notification } from '../types';
+import { USERS, TIMESHEETS, LEAVE_REQUESTS, PROJECTS, TASKS, NOTIFICATIONS } from '../constants';
 
 const LOCAL_STORAGE_KEY = 'timesheetAppData_cloudscale';
 const SIMULATED_LATENCY = 200; // ms
@@ -13,7 +13,8 @@ interface AppData {
   leaveRequests: LeaveRequest[];
   projects: Project[];
   tasks: Task[];
-  bestEmployeeId: number | null;
+  notifications: Notification[];
+  bestEmployeeIds: number[];
 }
 
 const initialState: AppData = {
@@ -22,7 +23,8 @@ const initialState: AppData = {
   leaveRequests: LEAVE_REQUESTS,
   projects: PROJECTS,
   tasks: TASKS,
-  bestEmployeeId: 1,
+  notifications: NOTIFICATIONS,
+  bestEmployeeIds: [1, 5],
 };
 
 let db: AppData;
@@ -33,6 +35,22 @@ const loadDb = (): AppData => {
     if (item) {
       const parsed = JSON.parse(item);
       if ('users' in parsed && 'projects' in parsed) {
+        // Ensure notifications array exists for backward compatibility
+        if (!parsed.notifications) {
+          parsed.notifications = [];
+        }
+
+        // Migration from single bestEmployeeId to array bestEmployeeIds
+        if (parsed.bestEmployeeId !== undefined) {
+          parsed.bestEmployeeIds = parsed.bestEmployeeId ? [parsed.bestEmployeeId] : [];
+          delete parsed.bestEmployeeId;
+        }
+
+        // Ensure bestEmployeeIds exists for older data structures
+        if (!parsed.bestEmployeeIds) {
+          parsed.bestEmployeeIds = [1];
+        }
+        
         return parsed;
       }
     }
@@ -105,11 +123,17 @@ export const cloudscaleApi = {
     saveDb();
     return callApi(db.users);
   },
-
-  updateBestEmployee: (userId: number): Promise<number> => {
-    db.bestEmployeeId = userId;
+  
+  updateNotifications: (notifications: Notification[]): Promise<Notification[]> => {
+    db.notifications = notifications;
     saveDb();
-    return callApi(db.bestEmployeeId!);
+    return callApi(db.notifications);
+  },
+
+  updateBestEmployees: (userIds: number[]): Promise<number[]> => {
+    db.bestEmployeeIds = userIds;
+    saveDb();
+    return callApi(db.bestEmployeeIds);
   },
 
   login: (email: string, password?: string): Promise<User | null> => {

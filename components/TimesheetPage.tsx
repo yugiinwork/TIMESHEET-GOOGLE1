@@ -1,14 +1,17 @@
 
 import React, { useState, useMemo } from 'react';
-import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork } from '../types';
+import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork, User } from '../types';
 
 interface TimesheetPageProps {
-  userId: number;
+  currentUser: User;
+  users: User[];
   timesheets: Timesheet[];
   setTimesheets: (updater: React.SetStateAction<Timesheet[]>) => Promise<void>;
   projects: Project[];
   tasks: Task[];
   onExport?: () => void;
+  addToastNotification: (message: string, title?: string) => void;
+  addNotification: (payload: { userId: number; title: string; message: string; linkTo?: any; }) => Promise<void>;
 }
 
 // Local state types for the modal to handle predefined vs. additional tasks
@@ -22,12 +25,12 @@ type ModalProjectWork = {
     workEntries: ModalWorkEntry[];
 };
 
-type EditingTimesheetState = Omit<Timesheet, 'id' | 'projectWork'> & {
+type EditingTimesheetState = Omit<Timesheet, 'id' | 'userId' | 'projectWork'> & {
     projectWork: ModalProjectWork[];
     id?: number; 
 };
 
-export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets, setTimesheets, projects, tasks, onExport }) => {
+export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users, timesheets, setTimesheets, projects, tasks, onExport, addToastNotification, addNotification }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTimesheet, setEditingTimesheet] = useState<EditingTimesheetState | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,7 +52,7 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
   const openModal = (timesheetToEdit?: Timesheet) => {
     // 1. Find all assigned, non-done tasks for the current user
     const assignedTasks = tasks.filter(t => 
-        t.assignedTo.includes(userId) && t.status !== 'Done'
+        t.assignedTo.includes(currentUser.id) && t.status !== 'Done'
     );
 
     // 2. Group them by project ID
@@ -102,7 +105,6 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
     const initialDate = timesheetToEdit ? timesheetToEdit.date : new Date().toISOString().split('T')[0];
     setEditingTimesheet({
         ...(timesheetToEdit || { // or default values for a new timesheet
-            userId,
             inTime: '09:00',
             outTime: '17:00',
             status: Status.PENDING,
@@ -184,17 +186,32 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
 
     const finalTimesheet = {
         ...editingTimesheet,
+        userId: currentUser.id,
         projectWork: finalProjectWork,
     };
     
     if ('id' in finalTimesheet) {
       await setTimesheets(prev => prev.map(t => t.id === finalTimesheet.id ? (finalTimesheet as Timesheet) : t));
+      addToastNotification(`Your timesheet for ${finalTimesheet.date} has been updated.`, 'Timesheet Updated');
     } else {
       const newTimesheet: Timesheet = {
         ...finalTimesheet,
         id: Date.now(),
       } as Timesheet;
       await setTimesheets(prev => [...prev, newTimesheet]);
+      
+      // For the user submitting
+      addToastNotification(`Your timesheet for ${newTimesheet.date} has been submitted.`, 'Timesheet Submitted');
+
+      // For the manager/leader
+      if (currentUser.managerId) {
+        await addNotification({
+            userId: currentUser.managerId,
+            title: 'New Timesheet Submission',
+            message: `${currentUser.name} has submitted a timesheet for review.`,
+            linkTo: 'TEAM_TIMESHEETS',
+        });
+      }
     }
     closeModal();
   };
@@ -341,4 +358,3 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ userId, timesheets
     </div>
   );
 };
-    

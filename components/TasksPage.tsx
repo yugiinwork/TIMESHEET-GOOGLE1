@@ -1,7 +1,7 @@
 
 
 import React, { useState } from 'react';
-import { Project, Task, User, TaskStatus, Role } from '../types';
+import { Project, Task, User, TaskStatus, Role, View } from '../types';
 
 interface TasksPageProps {
   projects: Project[];
@@ -9,7 +9,8 @@ interface TasksPageProps {
   users: User[];
   currentUser: User;
   setTasks: (updater: React.SetStateAction<Task[]>) => Promise<void>;
-  addNotification: (message: string) => void;
+  addToastNotification: (message: string, title?: string) => void;
+  addNotification: (payload: { userId: number; title: string; message: string; linkTo?: View; }) => Promise<void>;
 }
 
 const TaskModal: React.FC<{
@@ -77,7 +78,7 @@ const TaskModal: React.FC<{
     )
 };
 
-export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, currentUser, setTasks, addNotification }) => {
+export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, currentUser, setTasks, addToastNotification, addNotification }) => {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(projects.length > 0 ? projects[0].id : null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Omit<Task, 'id'> | Task | null>(null);
@@ -117,12 +118,25 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
       await setTasks(prev => [...prev, newTask]);
     }
     
+    // Notify any newly assigned users
     const newAssignees = taskData.assignedTo;
-    const wasCurrentUserNewlyAssigned = newAssignees.includes(currentUser.id) && !originalAssignees.includes(currentUser.id);
+    const newlyAssignedUserIds = newAssignees.filter(id => !originalAssignees.includes(id));
 
-    if (wasCurrentUserNewlyAssigned) {
-      addNotification(`You have been assigned a new task: "${taskData.title}"`);
+    for (const userId of newlyAssignedUserIds) {
+        // Create a persistent notification for the newly assigned user
+        await addNotification({
+            userId: userId,
+            title: 'New Task Assigned',
+            message: `You have a new task: "${taskData.title}" in project ${selectedProject?.name}.`,
+            linkTo: 'TASKS',
+        });
+        
+        // If the current user is assigning the task to themselves, show a toast.
+        if (userId === currentUser.id) {
+            addToastNotification(`You have been assigned a new task: "${taskData.title}"`, 'New Task Assigned');
+        }
     }
+
 
     setIsModalOpen(false);
     setEditingTask(null);
