@@ -120,6 +120,7 @@ export interface Notification {
   read: boolean;
   linkTo?: View;
   createdAt: string; // ISO string
+  dismissed: boolean;
 }
 
 // For ephemeral, on-screen toasts

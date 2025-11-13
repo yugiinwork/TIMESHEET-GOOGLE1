@@ -476,17 +476,22 @@ const App: React.FC = () => {
     setToastNotifications(prev => [...prev, newToast]);
   };
 
-  const addNotification = async (payload: Omit<Notification, 'id' | 'read' | 'createdAt'>) => {
+  const addNotification = async (payload: Omit<Notification, 'id' | 'read' | 'createdAt' | 'dismissed'>) => {
     const newNotification: Notification = {
         ...payload,
         id: Date.now(),
         read: false,
         createdAt: new Date().toISOString(),
+        dismissed: false,
     };
     await setNotifications(prev => [...prev, newNotification]);
   }
   
-  const removeNotification = async (notificationId: number) => {
+  const dismissNotification = async (notificationId: number) => {
+    await setNotifications(prev => prev.map(n => n.id === notificationId ? {...n, dismissed: true, read: true} : n));
+  }
+  
+  const permanentlyDeleteNotification = async (notificationId: number) => {
     await setNotifications(prev => prev.filter(n => n.id !== notificationId));
   }
 
@@ -494,9 +499,9 @@ const App: React.FC = () => {
       await setNotifications(prev => prev.map(n => n.userId === currentUser?.id ? {...n, read: true} : n));
   };
 
-  const clearAllNotifications = async () => {
+  const dismissAllNotifications = async () => {
     if (!currentUser) return;
-    await setNotifications(prev => prev.filter(n => n.userId !== currentUser.id));
+    await setNotifications(prev => prev.map(n => n.userId === currentUser.id && !n.dismissed ? {...n, dismissed: true, read: true } : n));
   };
 
   const userNotifications = useMemo(() => {
@@ -769,7 +774,10 @@ const App: React.FC = () => {
             onExport={canExport ? handleExportLeaveRequestsByDay : undefined}
         />
       }
-      case 'PROJECTS':
+      case 'PROJECTS': {
+        const companyTaskIds = tasks.filter(t => companyProjects.some(p => p.id === t.projectId)).map(t => t.id);
+        const companyTasks = tasks.filter(t => companyTaskIds.includes(t.id));
+
         return <ProjectManagementPage 
             projects={companyProjects}
             setProjects={setProjects}
@@ -777,7 +785,12 @@ const App: React.FC = () => {
             currentUser={currentUser}
             onSetBestEmployee={() => setIsBestEmployeeModalOpen(true)}
             onExport={canExport ? handleExportProjects : undefined}
+            tasks={companyTasks}
+            setTasks={setTasks}
+            addNotification={addNotification}
+            addToastNotification={addToastNotification}
         />;
+      }
       case 'USERS':
         return <UserManagementPage 
             users={companyUsers}
@@ -824,8 +837,9 @@ const App: React.FC = () => {
         notifications={userNotifications}
         setView={setView}
         markAllNotificationsAsRead={markAllNotificationsAsRead}
-        removeNotification={removeNotification}
-        clearAllNotifications={clearAllNotifications}
+        dismissNotification={dismissNotification}
+        dismissAllNotifications={dismissAllNotifications}
+        permanentlyDeleteNotification={permanentlyDeleteNotification}
         unreadCount={userNotifications.filter(n => !n.read).length}
       />
       <div className="fixed top-5 right-5 z-[2147483647] space-y-2">

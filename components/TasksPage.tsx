@@ -126,7 +126,9 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
       await setTasks(prev => prev.map(t => t.id === (taskData as Task).id ? (taskData as Task) : t));
     }
     
-    addToastNotification(`Task "${taskData.title}" has been ${isNewTask ? 'created' : 'updated'}.`, 'Task Saved');
+    if (!isNewTask) {
+        addToastNotification(`Task "${taskData.title}" has been updated.`, 'Task Updated');
+    }
 
     // Notify any newly assigned users
     const newAssignees = taskData.assignedTo;
@@ -137,7 +139,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
         await addNotification({
             userId: userId,
             title: 'New Task Assigned',
-            message: `You have a new task: "${taskData.title}" in project ${selectedProject?.name}.`,
+            message: `${currentUser.name} assigned you a new task: "${taskData.title}" in project ${selectedProject?.name}.`,
             linkTo: 'TASKS',
         });
     }

@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { Project, User, Role, ProjectStatus } from '../types';
+import { Project, User, Role, ProjectStatus, Task, TaskStatus, View, TaskImportance } from '../types';
 
 interface ProjectManagementPageProps {
   projects: Project[];
@@ -9,6 +8,10 @@ interface ProjectManagementPageProps {
   currentUser: User;
   onSetBestEmployee: () => void;
   onExport?: () => void;
+  tasks: Task[];
+  setTasks: (updater: React.SetStateAction<Task[]>) => Promise<void>;
+  addToastNotification: (message: string, title?: string) => void;
+  addNotification: (payload: { userId: number; title: string; message: string; linkTo?: View; }) => Promise<void>;
 }
 
 const emptyProject = (managerId: number, company: string): Omit<Project, 'id'> => ({
@@ -25,15 +28,98 @@ const emptyProject = (managerId: number, company: string): Omit<Project, 'id'> =
   status: ProjectStatus.NOT_STARTED,
 });
 
-export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ projects, setProjects, users, currentUser, onSetBestEmployee, onExport }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+// --- Task Management Components (Copied from TasksPage for project-specific view) ---
+
+const TaskModal: React.FC<{
+    task: Omit<Task, 'id'> | Task;
+    project: Project;
+    users: User[];
+    onClose: () => void;
+    onSave: (task: Omit<Task, 'id'> | Task) => void;
+}> = ({ task, project, users, onClose, onSave }) => {
+    const [formData, setFormData] = useState(task);
+    const assignableUsers = users.filter(u => u.role === Role.EMPLOYEE || u.role === Role.TEAM_LEADER);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({...prev, [name]: value}));
+    }
+
+    const handleAssigneeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedIds = Array.from(e.target.selectedOptions, (option: HTMLOptionElement) => Number(option.value));
+        setFormData(prev => ({...prev, assignedTo: selectedIds}));
+    }
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData);
+    }
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-8 w-full max-w-lg">
+                <h2 className="text-2xl font-bold mb-6 text-slate-800 dark:text-white">
+                    {'id' in formData ? 'Edit Task' : 'Create Task'} for {project.name}
+                </h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <input type="text" name="title" placeholder="Task Title" value={formData.title} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                    <textarea name="description" placeholder="Description" value={formData.description} onChange={handleInputChange} rows={3} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Status</label>
+                            <select name="status" value={formData.status} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                                <option value="To Do">To Do</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Done">Done</option>
+                            </select>
+                        </div>
+                        <div>
+                             <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Deadline</label>
+                             <input type="date" name="deadline" value={formData.deadline || ''} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Importance</label>
+                            <select name="importance" value={formData.importance} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                                {Object.values(TaskImportance).map(level => (
+                                    <option key={level} value={level}>{level}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Assigned To</label>
+                        <select multiple name="assignedTo" value={formData.assignedTo.map(String)} onChange={handleAssigneeChange} className="w-full h-24 p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                            {assignableUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                        </select>
+                    </div>
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition">Cancel</button>
+                        <button type="submit" className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition">Save Task</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    )
+};
+
+
+// --- Main Component ---
+
+export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ projects, setProjects, users, currentUser, onSetBestEmployee, onExport, tasks, setTasks, addToastNotification, addNotification }) => {
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Omit<Project, 'id'> | Project>(emptyProject(currentUser.id, currentUser.company || ''));
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  // Task-related state for the details view
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Omit<Task, 'id'> | Task | null>(null);
   
   const managers = users.filter(u => u.role === Role.MANAGER || u.role === Role.ADMIN);
   const teamLeaders = users.filter(u => u.role === Role.TEAM_LEADER);
   const employees = users.filter(u => u.role === Role.EMPLOYEE);
-  const canEdit = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
+  const canEditProjects = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
+  const canManageTasks = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
   const canSetBestEmployee = [Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
 
   const filteredProjects = useMemo(() => {
@@ -48,16 +134,17 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
     );
   }, [projects, searchQuery]);
 
-  const openModal = (project?: Project) => {
+  // --- Project Modal Logic ---
+  const openProjectModal = (project?: Project) => {
     setEditingProject(project || emptyProject(currentUser.id, currentUser.company || ''));
-    setIsModalOpen(true);
+    setIsProjectModalOpen(true);
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
+  const closeProjectModal = () => {
+    setIsProjectModalOpen(false);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleProjectInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     const isNumberField = ['managerId', 'teamLeaderId', 'estimatedHours', 'actualHours'].includes(name);
     
@@ -80,7 +167,7 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
       setEditingProject(prev => ({...prev, teamIds: value}));
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const projectData = {
         ...editingProject,
@@ -98,7 +185,7 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
       } as Project;
       await setProjects(prev => [...prev, newProject]);
     }
-    closeModal();
+    closeProjectModal();
   };
   
   const getStatusBadge = (status: ProjectStatus) => {
@@ -109,6 +196,171 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
         case ProjectStatus.ON_HOLD: return `${baseClasses} bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300`;
         case ProjectStatus.COMPLETED: return `${baseClasses} bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300`;
     }
+  }
+
+  // --- Task Logic for Details View ---
+  const handleCreateTask = () => {
+    if (!selectedProject) return;
+    setEditingTask({
+      projectId: selectedProject.id,
+      title: '',
+      description: '',
+      assignedTo: [],
+      status: 'To Do',
+      importance: TaskImportance.MEDIUM,
+      deadline: undefined
+    });
+    setIsTaskModalOpen(true);
+  };
+  
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setIsTaskModalOpen(true);
+  }
+
+  const handleSaveTask = async (taskData: Omit<Task, 'id'> | Task) => {
+    const isNewTask = !('id' in taskData);
+    const originalAssignees = isNewTask ? [] : (tasks.find(t => t.id === taskData.id)?.assignedTo) || [];
+
+    if (isNewTask) {
+      const newTask: Task = { id: Date.now(), ...taskData } as Task;
+      await setTasks(prev => [...prev, newTask]);
+    } else {
+      await setTasks(prev => prev.map(t => t.id === (taskData as Task).id ? (taskData as Task) : t));
+    }
+
+    if (!isNewTask) {
+        addToastNotification(`Task "${taskData.title}" has been updated.`, 'Task Updated');
+    }
+
+    const newAssignees = taskData.assignedTo;
+    const newlyAssignedUserIds = newAssignees.filter(id => !originalAssignees.includes(id));
+
+    for (const userId of newlyAssignedUserIds) {
+        await addNotification({
+            userId: userId,
+            title: 'New Task Assigned',
+            message: `${currentUser.name} assigned you a new task: "${taskData.title}" in project ${selectedProject?.name}.`,
+            linkTo: 'TASKS',
+        });
+    }
+
+    setIsTaskModalOpen(false);
+    setEditingTask(null);
+  };
+  
+  const handleCloseTaskModal = () => {
+    setIsTaskModalOpen(false);
+    setEditingTask(null);
+  }
+  
+  const TaskCard: React.FC<{task: Task}> = ({task}) => {
+    const assignees = users.filter(u => task.assignedTo.includes(u.id));
+
+    const deadlineInfo = useMemo(() => {
+        if (!task.deadline || task.status === 'Done') return { status: 'none', text: '' };
+        const now = new Date();
+        now.setHours(0, 0, 0, 0); 
+        const deadlineDate = new Date(task.deadline + 'T00:00:00');
+        const diffTime = deadlineDate.getTime() - now.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) return { status: 'overdue', text: 'Overdue' };
+        if (diffDays <= 1) return { status: 'due-soon', text: 'Due Soon' };
+        return { status: 'none', text: '' };
+    }, [task.deadline, task.status]);
+
+    const cardBorderColor = {
+        [TaskImportance.HIGH]: 'border-l-4 border-red-500',
+        [TaskImportance.MEDIUM]: 'border-l-4 border-amber-500',
+        [TaskImportance.LOW]: 'border-l-4 border-sky-500',
+    }[task.importance];
+
+    const deadlineTextColor = {
+        'overdue': 'text-red-500 dark:text-red-400',
+        'due-soon': 'text-amber-500 dark:text-amber-400',
+        'none': 'text-slate-500 dark:text-slate-400'
+    }[deadlineInfo.status];
+
+    return (
+        <div className={`bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm ${cardBorderColor}`}>
+            <div className="flex justify-between items-start">
+                <h4 className="font-bold text-slate-800 dark:text-slate-100">{task.title}</h4>
+                {canManageTasks && (
+                     <button onClick={() => handleEditTask(task)} className="text-xs text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200">Edit</button>
+                )}
+            </div>
+            {task.deadline && (
+                <p className={`text-xs ${deadlineTextColor} mt-1 font-semibold`}>
+                    Due: {task.deadline} {deadlineInfo.text && `(${deadlineInfo.text})`}
+                </p>
+            )}
+            <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">{task.description}</p>
+            <div className="mt-4 flex justify-end">
+                <div className="flex -space-x-2">
+                    {assignees.map(a => (
+                        <img key={a.id} src={a.profilePictureUrl || `https://picsum.photos/seed/${a.id}/32`} alt={a.name} title={a.name} className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800"/>
+                    ))}
+                </div>
+            </div>
+        </div>
+    )
+  }
+  
+  // --- Render Logic ---
+  if (selectedProject) {
+    const projectTasks = tasks.filter(t => t.projectId === selectedProject.id);
+    const tasksByStatus: Record<TaskStatus, Task[]> = {
+      'To Do': projectTasks.filter(t => t.status === 'To Do'),
+      'In Progress': projectTasks.filter(t => t.status === 'In Progress'),
+      'Done': projectTasks.filter(t => t.status === 'Done'),
+    };
+    const statuses: TaskStatus[] = ['To Do', 'In Progress', 'Done'];
+
+    return (
+        <div>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <div>
+                    <button onClick={() => setSelectedProject(null)} className="text-sm font-medium text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200 flex items-center gap-2 mb-2">
+                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                       Back to Projects
+                    </button>
+                    <h1 className="text-3xl font-bold text-slate-800 dark:text-white">{selectedProject.name} - Task Board</h1>
+                </div>
+                {canManageTasks && (
+                    <button 
+                        onClick={handleCreateTask}
+                        className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition"
+                    >
+                        Create Task
+                    </button>
+                )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {statuses.map(status => (
+                    <div key={status} className="bg-slate-200/50 dark:bg-slate-800/50 rounded-lg p-4">
+                        <h3 className="font-bold text-lg text-slate-700 dark:text-slate-200 mb-4">{status} ({tasksByStatus[status].length})</h3>
+                        <div className="space-y-4">
+                            {tasksByStatus[status].map(task => (
+                               <TaskCard key={task.id} task={task} />
+                            ))}
+                             {tasksByStatus[status].length === 0 && (
+                                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-4">No tasks in this column.</p>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            {isTaskModalOpen && editingTask && (
+                <TaskModal
+                    task={editingTask}
+                    project={selectedProject}
+                    users={users}
+                    onClose={handleCloseTaskModal}
+                    onSave={handleSaveTask}
+                />
+            )}
+        </div>
+    )
   }
 
   return (
@@ -141,9 +393,9 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
                 </button>
             )}
-            {canEdit && (
+            {canEditProjects && (
               <button
-                onClick={() => openModal()}
+                onClick={() => openProjectModal()}
                 className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition"
               >
                 Create
@@ -154,7 +406,7 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProjects.map(project => (
-          <div key={project.id} className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-6 flex flex-col">
+          <div key={project.id} onClick={() => setSelectedProject(project)} className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-6 flex flex-col hover:shadow-xl hover:ring-2 hover:ring-sky-500 transition-all cursor-pointer">
             <div className="flex justify-between items-start">
               <h2 className="text-xl font-bold text-sky-600 dark:text-sky-400">{project.name}</h2>
               <span className={getStatusBadge(project.status)}>{project.status}</span>
@@ -185,10 +437,10 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
                     ))}
                 </div>
             </div>
-            {canEdit && (
+            {canEditProjects && (
               <div className="mt-6 text-right">
-                <button onClick={() => openModal(project)} className="text-sky-600 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-200 text-sm font-medium">
-                  Edit
+                <button onClick={(e) => { e.stopPropagation(); openProjectModal(project);}} className="text-sky-600 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-200 text-sm font-medium">
+                  Edit Project Info
                 </button>
               </div>
             )}
@@ -196,48 +448,48 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
         ))}
       </div>
 
-      {isModalOpen && canEdit && (
+      {isProjectModalOpen && canEditProjects && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-800 rounded-lg p-8 w-full max-w-2xl max-h-screen overflow-y-auto">
             <h2 className="text-2xl font-bold mb-6 text-slate-800 dark:text-white">
               {'id' in editingProject ? 'Edit' : 'Create'} Project
             </h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleProjectSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="text" name="name" placeholder="Project Name" value={editingProject.name} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                <input type="text" name="name" placeholder="Project Name" value={editingProject.name} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
                 <div>
                     <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Status</label>
-                    <select name="status" value={editingProject.status} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                    <select name="status" value={editingProject.status} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
                         {Object.values(ProjectStatus).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="text" name="customerName" placeholder="Customer Name" value={editingProject.customerName} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
-                <input type="text" name="jobName" placeholder="Job Name" value={editingProject.jobName} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                <input type="text" name="customerName" placeholder="Customer Name" value={editingProject.customerName} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                <input type="text" name="jobName" placeholder="Job Name" value={editingProject.jobName} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <div>
                     <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Estimated Hours</label>
-                    <input type="number" name="estimatedHours" value={editingProject.estimatedHours} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
+                    <input type="number" name="estimatedHours" value={editingProject.estimatedHours} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
                  </div>
                  <div>
                     <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Actual Hours (Auto-calculated)</label>
                     <input type="number" name="actualHours" value={editingProject.actualHours} className="w-full p-2 bg-slate-200 dark:bg-slate-600 border border-slate-300 dark:border-slate-600 rounded-md" disabled />
                  </div>
               </div>
-              <textarea name="description" placeholder="Description" value={editingProject.description} onChange={handleInputChange} rows={3} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required></textarea>
+              <textarea name="description" placeholder="Description" value={editingProject.description} onChange={handleProjectInputChange} rows={3} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required></textarea>
                 {currentUser.role !== Role.TEAM_LEADER && (
                     <div>
                         <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Manager</label>
-                        <select name="managerId" value={editingProject.managerId} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required>
+                        <select name="managerId" value={editingProject.managerId} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required>
                             {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                         </select>
                     </div>
                 )}
                  <div>
                     <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Team Leader</label>
-                    <select name="teamLeaderId" value={editingProject.teamLeaderId || ''} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                    <select name="teamLeaderId" value={editingProject.teamLeaderId || ''} onChange={handleProjectInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
                         <option value="">None</option>
                         {teamLeaders.map(tl => <option key={tl.id} value={tl.id}>{tl.name}</option>)}
                     </select>
@@ -249,7 +501,7 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
                   </select>
                 </div>
               <div className="mt-6 flex justify-end space-x-3">
-                <button type="button" onClick={closeModal} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition">Cancel</button>
+                <button type="button" onClick={closeProjectModal} className="px-4 py-2 bg-slate-200 dark:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-500 transition">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition">Save Project</button>
               </div>
             </form>

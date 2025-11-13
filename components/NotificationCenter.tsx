@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Notification, View } from '../types';
 
 interface NotificationCenterProps {
@@ -8,8 +8,9 @@ interface NotificationCenterProps {
   setView: (view: View) => void;
   markAllNotificationsAsRead: () => Promise<void>;
   unreadCount: number;
-  removeNotification: (id: number) => Promise<void>;
-  clearAllNotifications: () => Promise<void>;
+  dismissNotification: (id: number) => Promise<void>;
+  dismissAllNotifications: () => Promise<void>;
+  permanentlyDeleteNotification: (id: number) => Promise<void>;
 }
 
 const timeSince = (dateString: string) => {
@@ -35,17 +36,24 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   setView,
   markAllNotificationsAsRead,
   unreadCount,
-  removeNotification,
-  clearAllNotifications,
+  dismissNotification,
+  dismissAllNotifications,
+  permanentlyDeleteNotification,
 }) => {
+  const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
+
+  const newNotifications = useMemo(() => notifications.filter(n => !n.dismissed), [notifications]);
+  const historyNotifications = useMemo(() => notifications.filter(n => n.dismissed), [notifications]);
 
   const handleNotificationClick = async (notification: Notification) => {
     if (notification.linkTo) {
       setView(notification.linkTo);
     }
     onClose();
-    await removeNotification(notification.id);
+    await dismissNotification(notification.id);
   };
+
+  const currentList = activeTab === 'new' ? newNotifications : historyNotifications;
 
   return (
     <>
@@ -62,24 +70,36 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
         {/* Header */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center flex-shrink-0">
           <h2 className="text-lg font-bold text-slate-800 dark:text-white">Notifications</h2>
-          <div className="flex items-center gap-4">
-            {unreadCount > 0 && <button onClick={markAllNotificationsAsRead} className="text-xs text-sky-600 dark:text-sky-400 hover:underline">Mark all as read</button>}
-            {notifications.length > 0 && <button onClick={clearAllNotifications} className="text-xs text-red-500 hover:underline">Clear All</button>}
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl font-light">&times;</button>
-          </div>
+        </div>
+
+        {/* Tabs and Controls */}
+        <div className="p-2 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center text-sm">
+            <div className="flex gap-2">
+                <button onClick={() => setActiveTab('new')} className={`px-3 py-1 rounded-md ${activeTab === 'new' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300 font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}>New ({newNotifications.length})</button>
+                <button onClick={() => setActiveTab('history')} className={`px-3 py-1 rounded-md ${activeTab === 'history' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300 font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}>History</button>
+            </div>
+            {activeTab === 'new' && newNotifications.length > 0 && (
+                <button onClick={dismissAllNotifications} className="text-xs text-sky-600 dark:text-sky-400 hover:underline">Dismiss All</button>
+            )}
         </div>
         
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
-          {notifications.length > 0 ? notifications.map(n => (
-            <div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-4 border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${!n.read ? 'bg-sky-50 dark:bg-sky-900/20' : ''}`}>
+          {currentList.length > 0 ? currentList.map(n => (
+            <div key={n.id} onClick={activeTab === 'new' ? () => handleNotificationClick(n) : undefined} className={`p-4 border-b border-slate-100 dark:border-slate-700/50  transition-colors ${activeTab === 'new' ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer' : ''} ${!n.read ? 'bg-sky-50 dark:bg-sky-900/20' : ''}`}>
               <div className="flex items-start gap-3">
-                {!n.read && <div className="mt-1.5 h-2 w-2 rounded-full bg-sky-500 flex-shrink-0 animate-pulse"></div>}
+                {!n.read && activeTab === 'new' && <div className="mt-1.5 h-2 w-2 rounded-full bg-sky-500 flex-shrink-0 animate-pulse"></div>}
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{n.title}</p>
                   <p className="text-sm text-slate-600 dark:text-slate-400">{n.message}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{timeSince(n.createdAt)}</p>
                 </div>
+                {activeTab === 'history' && (
+                    <button onClick={() => permanentlyDeleteNotification(n.id)} className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label="Delete permanently">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                )}
               </div>
             </div>
           )) : (
@@ -87,8 +107,8 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
-              <h3 className="mt-4 text-lg font-semibold text-slate-700 dark:text-slate-300">All caught up!</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400">You have no new notifications.</p>
+              <h3 className="mt-4 text-lg font-semibold text-slate-700 dark:text-slate-300">{activeTab === 'new' ? 'All caught up!' : 'No History'}</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{activeTab === 'new' ? 'You have no new notifications.' : 'Your notification history is empty.'}</p>
             </div>
           )}
         </div>
