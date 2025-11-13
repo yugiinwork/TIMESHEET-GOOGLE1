@@ -91,6 +91,11 @@ export interface Project {
 }
 
 export type TaskStatus = 'To Do' | 'In Progress' | 'Done';
+export enum TaskImportance {
+    LOW = 'Low',
+    MEDIUM = 'Medium',
+    HIGH = 'High',
+}
 
 export interface Task {
     id: number;
@@ -99,6 +104,7 @@ export interface Task {
     description: string;
     assignedTo: number[];
     status: TaskStatus;
+    importance: TaskImportance;
     deadline?: string;
     completionDate?: string;
 }

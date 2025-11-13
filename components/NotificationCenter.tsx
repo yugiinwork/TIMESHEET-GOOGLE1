@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Notification, View } from '../types';
 
@@ -7,9 +6,10 @@ interface NotificationCenterProps {
   onClose: () => void;
   notifications: Notification[];
   setView: (view: View) => void;
-  markNotificationAsRead: (id: number) => Promise<void>;
   markAllNotificationsAsRead: () => Promise<void>;
   unreadCount: number;
+  removeNotification: (id: number) => Promise<void>;
+  clearAllNotifications: () => Promise<void>;
 }
 
 const timeSince = (dateString: string) => {
@@ -33,19 +33,18 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
   onClose,
   notifications,
   setView,
-  markNotificationAsRead,
   markAllNotificationsAsRead,
   unreadCount,
+  removeNotification,
+  clearAllNotifications,
 }) => {
 
   const handleNotificationClick = async (notification: Notification) => {
-    if (!notification.read) {
-      await markNotificationAsRead(notification.id);
-    }
     if (notification.linkTo) {
       setView(notification.linkTo);
     }
     onClose();
+    await removeNotification(notification.id);
   };
 
   return (
@@ -65,6 +64,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
           <h2 className="text-lg font-bold text-slate-800 dark:text-white">Notifications</h2>
           <div className="flex items-center gap-4">
             {unreadCount > 0 && <button onClick={markAllNotificationsAsRead} className="text-xs text-sky-600 dark:text-sky-400 hover:underline">Mark all as read</button>}
+            {notifications.length > 0 && <button onClick={clearAllNotifications} className="text-xs text-red-500 hover:underline">Clear All</button>}
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl font-light">&times;</button>
           </div>
         </div>

@@ -96,9 +96,6 @@ export const LeaveRequestPage: React.FC<LeaveRequestPageProps> = ({ currentUser,
       } as LeaveRequest;
       await setLeaveRequests(prev => [...prev, newRequest]);
       
-      // For the user submitting
-      addToastNotification('Your leave request has been submitted for approval.', 'Leave Request Submitted');
-      
       // For the manager/leader
       if (currentUser.managerId) {
         await addNotification({

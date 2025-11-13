@@ -1,7 +1,5 @@
-
-
 import React, { useState } from 'react';
-import { Project, Task, User, TaskStatus, Role, View } from '../types';
+import { Project, Task, User, TaskStatus, Role, View, TaskImportance } from '../types';
 
 interface TasksPageProps {
   projects: Project[];
@@ -48,7 +46,7 @@ const TaskModal: React.FC<{
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <input type="text" name="title" placeholder="Task Title" value={formData.title} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
                     <textarea name="description" placeholder="Description" value={formData.description} onChange={handleInputChange} rows={3} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" required />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Status</label>
                             <select name="status" value={formData.status} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
@@ -60,6 +58,14 @@ const TaskModal: React.FC<{
                         <div>
                              <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Deadline</label>
                              <input type="date" name="deadline" value={formData.deadline || ''} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400">Importance</label>
+                            <select name="importance" value={formData.importance} onChange={handleInputChange} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
+                                {Object.values(TaskImportance).map(level => (
+                                    <option key={level} value={level}>{level}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                     <div>
@@ -95,6 +101,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
       description: '',
       assignedTo: [],
       status: 'To Do',
+      importance: TaskImportance.MEDIUM,
       deadline: undefined
     });
     setIsModalOpen(true);
@@ -106,18 +113,21 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
   }
 
   const handleSaveTask = async (taskData: Omit<Task, 'id'> | Task) => {
-    const originalAssignees = ('id' in taskData && tasks.find(t => t.id === taskData.id)?.assignedTo) || [];
+    const isNewTask = !('id' in taskData);
+    const originalAssignees = isNewTask ? [] : (tasks.find(t => t.id === taskData.id)?.assignedTo) || [];
 
-    if ('id' in taskData) {
-      await setTasks(prev => prev.map(t => t.id === taskData.id ? taskData : t));
-    } else {
+    if (isNewTask) {
       const newTask: Task = {
         id: Date.now(),
         ...taskData,
       } as Task;
       await setTasks(prev => [...prev, newTask]);
+    } else {
+      await setTasks(prev => prev.map(t => t.id === (taskData as Task).id ? (taskData as Task) : t));
     }
     
+    addToastNotification(`Task "${taskData.title}" has been ${isNewTask ? 'created' : 'updated'}.`, 'Task Saved');
+
     // Notify any newly assigned users
     const newAssignees = taskData.assignedTo;
     const newlyAssignedUserIds = newAssignees.filter(id => !originalAssignees.includes(id));
@@ -130,13 +140,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
             message: `You have a new task: "${taskData.title}" in project ${selectedProject?.name}.`,
             linkTo: 'TASKS',
         });
-        
-        // If the current user is assigning the task to themselves, show a toast.
-        if (userId === currentUser.id) {
-            addToastNotification(`You have been assigned a new task: "${taskData.title}"`, 'New Task Assigned');
-        }
     }
-
 
     setIsModalOpen(false);
     setEditingTask(null);
@@ -158,36 +162,24 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
     const assignees = users.filter(u => task.assignedTo.includes(u.id));
 
     const getDeadlineStatus = () => {
-        if (!task.deadline || task.status === 'Done') {
-            return { status: 'none', text: '' };
-        }
-
+        if (!task.deadline || task.status === 'Done') return { status: 'none', text: '' };
         const now = new Date();
-        // Set hours to 0 to compare dates only, avoiding timezone issues
         now.setHours(0, 0, 0, 0); 
-        const deadlineDate = new Date(task.deadline);
-        deadlineDate.setHours(0,0,0,0);
-
+        const deadlineDate = new Date(task.deadline + 'T00:00:00');
         const diffTime = deadlineDate.getTime() - now.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays < 0) {
-            return { status: 'overdue', text: 'Overdue' };
-        }
-        if (diffDays <= 1) { // Today or tomorrow
-            return { status: 'due-soon', text: 'Due Soon' };
-        }
-
+        if (diffDays < 0) return { status: 'overdue', text: 'Overdue' };
+        if (diffDays <= 1) return { status: 'due-soon', text: 'Due Soon' };
         return { status: 'none', text: '' };
     };
 
     const deadlineInfo = getDeadlineStatus();
 
     const cardBorderColor = {
-        'overdue': 'border-red-500 dark:border-red-500',
-        'due-soon': 'border-amber-500 dark:border-amber-500',
-        'none': 'border-slate-200 dark:border-slate-700'
-    }[deadlineInfo.status];
+        [TaskImportance.HIGH]: 'border-l-4 border-red-500',
+        [TaskImportance.MEDIUM]: 'border-l-4 border-amber-500',
+        [TaskImportance.LOW]: 'border-l-4 border-sky-500',
+    }[task.importance];
 
     const deadlineTextColor = {
         'overdue': 'text-red-500 dark:text-red-400',
@@ -196,7 +188,7 @@ export const TasksPage: React.FC<TasksPageProps> = ({ projects, tasks, users, cu
     }[deadlineInfo.status];
 
     return (
-        <div className={`bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border-2 ${cardBorderColor}`}>
+        <div className={`bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm ${cardBorderColor}`}>
             <div className="flex justify-between items-start">
                 <h4 className="font-bold text-slate-800 dark:text-slate-100">{task.title}</h4>
                 {canManageTasks && (

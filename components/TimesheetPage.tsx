@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork, User } from '../types';
+import { Timesheet, Status, Project, WorkEntry, Task, ProjectWork, User, Role } from '../types';
 
 interface TimesheetPageProps {
   currentUser: User;
@@ -13,19 +13,16 @@ interface TimesheetPageProps {
   addNotification: (payload: { userId: number; title: string; message: string; linkTo?: any; }) => Promise<void>;
 }
 
-// Local state types for the modal to handle predefined vs. additional tasks
-type ModalWorkEntry = WorkEntry & {
-    isPredefined: boolean;
-    taskId?: number;
+// Simplified state for a flat list of work entries in the modal
+type FlatModalWorkEntry = {
+    projectId: number | ''; 
+    description: string;
+    hours: number;
 };
 
-type ModalProjectWork = {
-    projectId: number;
-    workEntries: ModalWorkEntry[];
-};
-
-type EditingTimesheetState = Omit<Timesheet, 'id' | 'userId' | 'projectWork'> & {
-    projectWork: ModalProjectWork[];
+type EditingTimesheetState = Omit<Timesheet, 'id' | 'userId' | 'status' | 'projectWork'> & {
+    workEntries: FlatModalWorkEntry[];
+    status: Status;
     id?: number; 
 };
 
@@ -35,6 +32,9 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
   const [searchQuery, setSearchQuery] = useState('');
   
   const myProjects = useMemo(() => {
+    if ([Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role)) {
+      return projects;
+    }
     return projects.filter(p => 
       p.teamIds.includes(currentUser.id) ||
       p.managerId === currentUser.id ||
@@ -57,69 +57,30 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
   }, [timesheets, searchQuery, projects]);
 
   const openModal = (timesheetToEdit?: Timesheet) => {
-    // 1. Find all assigned, non-done tasks for the current user
-    const assignedTasks = tasks.filter(t => 
-        t.assignedTo.includes(currentUser.id) && t.status !== 'Done'
-    );
+    let initialWorkEntries: FlatModalWorkEntry[] = [{ projectId: '', description: '', hours: 0 }];
 
-    // 2. Group tasks by project ID for easy lookup
-    const tasksByProject = assignedTasks.reduce((acc, task) => {
-        (acc[task.projectId] = acc[task.projectId] || []).push(task);
-        return acc;
-    }, {} as Record<number, Task[]>);
-
-    // 3. Create the base structure from ALL projects the user is part of
-    let projectWorkStructure: ModalProjectWork[] = myProjects.map(project => {
-        const projectTasks = tasksByProject[project.id] || [];
-        return {
-            projectId: project.id,
-            workEntries: projectTasks.map(task => ({
-                description: `Task: ${task.title}`,
-                hours: 0,
-                isPredefined: true,
-                taskId: task.id,
-            }))
-        };
-    });
-
-    // 4. If editing, merge the saved data
     if (timesheetToEdit) {
-        timesheetToEdit.projectWork.forEach(savedPw => {
-            let projectInStructure = projectWorkStructure.find(pws => pws.projectId === savedPw.projectId);
-
-            // If project from saved timesheet doesn't exist in base structure (e.g., all its tasks are now 'Done'), add it back in.
-            if (!projectInStructure) {
-                projectInStructure = { projectId: savedPw.projectId, workEntries: [] };
-                projectWorkStructure.push(projectInStructure);
-            }
-
-            savedPw.workEntries.forEach(savedWe => {
-                // Try to find a matching predefined task entry to update its hours
-                const predefinedEntry = projectInStructure!.workEntries.find(we => we.isPredefined && we.description === savedWe.description);
-
-                if (predefinedEntry) {
-                    predefinedEntry.hours = savedWe.hours;
-                } else {
-                    // It's an additional task, so add it to the list
-                    projectInStructure!.workEntries.push({
-                        ...savedWe,
-                        isPredefined: false,
-                    });
-                }
-            });
-        });
+        const flattenedEntries = timesheetToEdit.projectWork.flatMap(pw => 
+            pw.workEntries.map(we => ({
+                projectId: pw.projectId,
+                description: we.description,
+                hours: we.hours
+            }))
+        );
+        if (flattenedEntries.length > 0) {
+            initialWorkEntries = flattenedEntries;
+        }
     }
     
-    // 5. Set the final state for the modal
     const initialDate = timesheetToEdit ? timesheetToEdit.date : new Date().toISOString().split('T')[0];
     setEditingTimesheet({
-        ...(timesheetToEdit || { // or default values for a new timesheet
+        ...(timesheetToEdit || {
             inTime: '09:00',
             outTime: '17:00',
             status: Status.PENDING,
         }),
         date: initialDate,
-        projectWork: projectWorkStructure,
+        workEntries: initialWorkEntries,
     });
     setIsModalOpen(true);
   };
@@ -135,71 +96,102 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
     setEditingTimesheet(prev => prev ? ({ ...prev, [name]: value }) : null);
   };
 
-  const handleWorkEntryChange = (pwIndex: number, weIndex: number, field: keyof WorkEntry, value: string | number) => {
+  const handleWorkEntryChange = (index: number, field: keyof FlatModalWorkEntry, value: string | number) => {
     if (!editingTimesheet) return;
     setEditingTimesheet(prev => {
         if (!prev) return null;
-        const newProjectWork = [...prev.projectWork];
-        const newWorkEntries = [...newProjectWork[pwIndex].workEntries];
-        const entryToUpdate = { ...newWorkEntries[weIndex] };
+        const newWorkEntries = [...prev.workEntries];
+        const entryToUpdate = { ...newWorkEntries[index] };
         
-        (entryToUpdate as any)[field] = field === 'hours' ? Number(value) : value;
-        newWorkEntries[weIndex] = entryToUpdate;
-        newProjectWork[pwIndex] = { ...newProjectWork[pwIndex], workEntries: newWorkEntries };
-        return {...prev, projectWork: newProjectWork};
-    })
-  }
-  
-  const addAdditionalTask = (pwIndex: number) => {
-    if (!editingTimesheet) return;
-    setEditingTimesheet(prev => {
-        if (!prev) return null;
-        const newProjectWork = [...prev.projectWork];
-        newProjectWork[pwIndex].workEntries.push({ description: '', hours: 0, isPredefined: false });
-        return {...prev, projectWork: newProjectWork};
-    });
-  }
+        let processedValue = value;
+        if (field === 'hours') {
+            processedValue = Number(value) < 0 ? 0 : Number(value);
+        } else if (field === 'projectId') {
+            processedValue = value === '' ? '' : Number(value);
+        }
 
-  const removeAdditionalTask = (pwIndex: number, weIndex: number) => {
+        (entryToUpdate as any)[field] = processedValue;
+        
+        newWorkEntries[index] = entryToUpdate;
+        return {...prev, workEntries: newWorkEntries};
+    });
+  };
+  
+  const addWorkEntry = () => {
     if (!editingTimesheet) return;
     setEditingTimesheet(prev => {
         if (!prev) return null;
-        const newProjectWork = [...prev.projectWork];
-        newProjectWork[pwIndex].workEntries = newProjectWork[pwIndex].workEntries.filter((_, i) => i !== weIndex);
-        return {...prev, projectWork: newProjectWork};
+        // FIX: Explicitly type the new work entry to prevent TypeScript from widening the type of projectId from '' to string.
+        const newEntry: FlatModalWorkEntry = { projectId: '', description: '', hours: 0 };
+        const newWorkEntries = [...prev.workEntries, newEntry];
+        return {...prev, workEntries: newWorkEntries};
     });
-  }
+  };
+
+  const removeWorkEntry = (index: number) => {
+    if (!editingTimesheet) return;
+    setEditingTimesheet(prev => {
+        if (!prev) return null;
+        const newWorkEntries = prev.workEntries.filter((_, i) => i !== index);
+        // If all entries are removed, add a fresh empty one back
+        if (newWorkEntries.length === 0) {
+            // FIX: Explicitly type the new work entry to prevent TypeScript from widening the type of projectId from '' to string.
+            const newEntry: FlatModalWorkEntry = { projectId: '', description: '', hours: 0 };
+            return {...prev, workEntries: [newEntry]};
+        }
+        return {...prev, workEntries: newWorkEntries};
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTimesheet) return;
 
-    // Filter out tasks with 0 hours and clean the data for saving
-    const finalProjectWork: ProjectWork[] = editingTimesheet.projectWork
-        .map(pw => ({
-            projectId: pw.projectId,
-            workEntries: pw.workEntries
-                .filter(we => we.hours > 0)
-                .map(({ description, hours }) => ({ description, hours })), // Strip modal-only properties
-        }))
-        .filter(pw => pw.workEntries.length > 0);
+    // Filter out invalid entries and group by project
+    const workByProject = editingTimesheet.workEntries
+        .filter(we => {
+            const hasCoreInfo = we.hours > 0 && we.description.trim() !== '';
+            if (!hasCoreInfo) return false;
+            if (currentUser.role === Role.ADMIN) return true; // project is optional for admin
+            return !!we.projectId; // project is required for others
+        })
+        .reduce((acc, current) => {
+            const projectId = (current.projectId === '' && currentUser.role === Role.ADMIN) 
+                ? 0 
+                : current.projectId as number;
+
+            if (!acc[projectId]) {
+                acc[projectId] = [];
+            }
+            acc[projectId].push({ description: current.description, hours: current.hours });
+            return acc;
+        }, {} as Record<number, WorkEntry[]>);
+
+    const finalProjectWork: ProjectWork[] = Object.entries(workByProject).map(([projectId, workEntries]) => ({
+        projectId: Number(projectId),
+        workEntries,
+    }));
 
     if (finalProjectWork.length === 0) {
-        alert("Please enter hours for at least one task.");
-        return;
-    }
-     if (finalProjectWork.some(pw => pw.workEntries.some(we => !we.description))) {
-        alert("Please provide a description for all additional tasks.");
+        let message = "Please enter at least one valid work entry with a project, description, and hours.";
+        if (currentUser.role === Role.ADMIN) {
+            message = "Please enter at least one valid work entry with a description and hours. Project is optional.";
+        }
+        alert(message);
         return;
     }
 
     const finalTimesheet = {
-        ...editingTimesheet,
+        id: editingTimesheet.id,
+        date: editingTimesheet.date,
+        inTime: editingTimesheet.inTime,
+        outTime: editingTimesheet.outTime,
+        status: editingTimesheet.status,
         userId: currentUser.id,
         projectWork: finalProjectWork,
     };
     
-    if ('id' in finalTimesheet) {
+    if ('id' in editingTimesheet && editingTimesheet.id) {
       await setTimesheets(prev => prev.map(t => t.id === finalTimesheet.id ? (finalTimesheet as Timesheet) : t));
       addToastNotification(`Your timesheet for ${finalTimesheet.date} has been updated.`, 'Timesheet Updated');
     } else {
@@ -233,7 +225,12 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
 
   const getWorkSummary = (ts: Timesheet) => {
     const totalHours = ts.projectWork.reduce((sum, pw) => sum + pw.workEntries.reduce((s, we) => s + we.hours, 0), 0);
-    const projectNames = ts.projectWork.map(pw => projects.find(p => p.id === pw.projectId)?.name || 'N/A').join(', ');
+    const projectNames = ts.projectWork.map(pw => {
+        if (pw.projectId === 0) {
+            return 'General/Admin Tasks';
+        }
+        return projects.find(p => p.id === pw.projectId)?.name || 'Unknown Project'
+    }).join(', ');
     return `${projectNames} (${totalHours} hrs)`;
   }
 
@@ -326,31 +323,62 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
                     </div>
                 </div>
                 
-                <div className="space-y-4">
-                  {editingTimesheet.projectWork.map((pw, pwIndex) => (
-                    <div key={pw.projectId} className="p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
-                        <h3 className="text-lg font-bold text-sky-600 dark:text-sky-400 mb-2">{projects.find(p => p.id === pw.projectId)?.name}</h3>
-                        <div className="space-y-2 mt-1">
-                          {pw.workEntries.map((entry, weIndex) => (
-                              <div key={weIndex} className="grid grid-cols-12 gap-2 items-center">
-                                  {entry.isPredefined ? (
-                                      <p className="col-span-8 text-sm py-2">{entry.description.replace('Task: ', '')}</p>
-                                  ) : (
-                                      <input type="text" placeholder="Additional task description" value={entry.description} onChange={(e) => handleWorkEntryChange(pwIndex, weIndex, 'description', e.target.value)} className="col-span-8 p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" />
-                                  )}
-                                  <input type="number" placeholder="Hours" value={entry.hours} step="0.5" min="0" onChange={(e) => handleWorkEntryChange(pwIndex, weIndex, 'hours', e.target.value)} className="col-span-3 w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md" />
-                                  {!entry.isPredefined &&
-                                    <button type="button" onClick={() => removeAdditionalTask(pwIndex, weIndex)} className="col-span-1 p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full text-center">&times;</button>
-                                  }
-                              </div>
-                          ))}
-                        </div>
-                         <button type="button" onClick={() => addAdditionalTask(pwIndex)} className="mt-3 text-sm text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200">+ Add Additional Task</button>
+                <div className="space-y-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+                    <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Work Entries</h3>
+                    <div className="space-y-3">
+                        {editingTimesheet.workEntries.map((entry, index) => (
+                            <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                                {currentUser.role !== Role.ADMIN && (
+                                    <select 
+                                        value={entry.projectId} 
+                                        onChange={(e) => handleWorkEntryChange(index, 'projectId', e.target.value)}
+                                        className="col-span-12 sm:col-span-4 p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md"
+                                        required
+                                    >
+                                        <option value="" disabled>Select Project</option>
+                                        {myProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                )}
+                                <input 
+                                    type="text" 
+                                    placeholder="Work description" 
+                                    value={entry.description} 
+                                    onChange={(e) => handleWorkEntryChange(index, 'description', e.target.value)} 
+                                    className={`p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md ${
+                                        currentUser.role === Role.ADMIN ? 'col-span-12 sm:col-span-9' : 'col-span-12 sm:col-span-5'
+                                    }`} 
+                                    required
+                                />
+                                <input 
+                                    type="number" 
+                                    placeholder="Hours" 
+                                    value={entry.hours} 
+                                    step="0.5" 
+                                    min="0" 
+                                    onChange={(e) => handleWorkEntryChange(index, 'hours', e.target.value)} 
+                                    className="col-span-8 sm:col-span-2 w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md"
+                                    required
+                                />
+                                <div className="col-span-4 sm:col-span-1 flex justify-end">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => removeWorkEntry(index)} 
+                                        className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full text-center"
+                                        aria-label="Remove work entry"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                  ))}
-                   {editingTimesheet.projectWork.length === 0 && (
-                        <p className="text-center text-slate-500 dark:text-slate-400 py-4">You are not assigned to any projects. Add work manually if needed.</p>
-                   )}
+                    <button 
+                        type="button" 
+                        onClick={addWorkEntry} 
+                        className="mt-3 text-sm text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200"
+                    >
+                        + Add Work Entry
+                    </button>
                 </div>
               </div>
               <div className="mt-6 flex justify-end space-x-3">

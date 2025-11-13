@@ -486,12 +486,17 @@ const App: React.FC = () => {
     await setNotifications(prev => [...prev, newNotification]);
   }
   
-  const markNotificationAsRead = async (notificationId: number) => {
-      await setNotifications(prev => prev.map(n => n.id === notificationId ? {...n, read: true} : n));
-  };
+  const removeNotification = async (notificationId: number) => {
+    await setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  }
 
   const markAllNotificationsAsRead = async () => {
       await setNotifications(prev => prev.map(n => n.userId === currentUser?.id ? {...n, read: true} : n));
+  };
+
+  const clearAllNotifications = async () => {
+    if (!currentUser) return;
+    await setNotifications(prev => prev.filter(n => n.userId !== currentUser.id));
   };
 
   const userNotifications = useMemo(() => {
@@ -668,6 +673,7 @@ const App: React.FC = () => {
             timesheets={timesheets}
             leaveRequests={leaveRequests}
             projects={companyProjects}
+            tasks={tasks}
             bestEmployeeIds={bestEmployeeIds}
             setView={setView}
         />;
@@ -817,8 +823,9 @@ const App: React.FC = () => {
         onClose={() => setIsNotificationCenterOpen(false)}
         notifications={userNotifications}
         setView={setView}
-        markNotificationAsRead={markNotificationAsRead}
         markAllNotificationsAsRead={markAllNotificationsAsRead}
+        removeNotification={removeNotification}
+        clearAllNotifications={clearAllNotifications}
         unreadCount={userNotifications.filter(n => !n.read).length}
       />
       <div className="fixed top-5 right-5 z-[2147483647] space-y-2">

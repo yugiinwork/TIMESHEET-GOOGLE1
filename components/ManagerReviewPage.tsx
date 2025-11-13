@@ -197,7 +197,12 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
   
   const getTimesheetSummary = (item: Timesheet) => {
     const totalHours = item.projectWork.reduce((sum, pw) => sum + pw.workEntries.reduce((s, we) => s + we.hours, 0), 0);
-    const projectNames = item.projectWork.map(pw => projects.find(p => p.id === pw.projectId)?.name || 'N/A').join(', ');
+    const projectNames = item.projectWork.map(pw => {
+        if (pw.projectId === 0) {
+            return 'General/Admin Tasks';
+        }
+        return projects.find(p => p.id === pw.projectId)?.name || 'Unknown Project';
+    }).join(', ');
     return `${projectNames} (${totalHours} hrs)`;
   }
 

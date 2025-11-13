@@ -1,4 +1,4 @@
-import { Role, Status, User, Timesheet, LeaveRequest, Project, Task, TaskStatus, ProjectStatus, Notification } from './types';
+import { Role, Status, User, Timesheet, LeaveRequest, Project, Task, TaskStatus, ProjectStatus, Notification, TaskImportance } from './types';
 
 export const USERS: User[] = [
   { 
@@ -60,11 +60,11 @@ export const PROJECTS: Project[] = [
 ];
 
 export const TASKS: Task[] = [
-    { id: 1, projectId: 1, title: 'Setup Authentication', description: 'Implement JWT-based authentication for the main application.', assignedTo: [1], status: 'Done' as TaskStatus, deadline: '2023-11-10', completionDate: '2023-10-20' },
-    { id: 2, projectId: 1, title: 'Design Landing Page', description: 'Create mockups and final designs for the new marketing landing page.', assignedTo: [2], status: 'In Progress' as TaskStatus, deadline: '2023-11-20' },
-    { id: 3, projectId: 1, title: 'Create Test Plan', description: 'Develop a comprehensive test plan for the Q4 release.', assignedTo: [5], status: 'To Do' as TaskStatus },
-    { id: 4, projectId: 2, title: 'Upgrade CI/CD Pipeline', description: 'Migrate the existing pipeline to the new infrastructure.', assignedTo: [1], status: 'In Progress' as TaskStatus, deadline: '2023-11-15' },
-    { id: 5, projectId: 2, title: 'End-to-end testing for Pipeline', description: 'Test the new CI/CD pipeline.', assignedTo: [5], status: 'To Do' as TaskStatus },
+    { id: 1, projectId: 1, title: 'Setup Authentication', description: 'Implement JWT-based authentication for the main application.', assignedTo: [1], status: 'Done' as TaskStatus, importance: TaskImportance.HIGH, deadline: '2023-11-10', completionDate: '2023-10-20' },
+    { id: 2, projectId: 1, title: 'Design Landing Page', description: 'Create mockups and final designs for the new marketing landing page.', assignedTo: [2], status: 'In Progress' as TaskStatus, importance: TaskImportance.MEDIUM, deadline: '2023-11-20' },
+    { id: 3, projectId: 1, title: 'Create Test Plan', description: 'Develop a comprehensive test plan for the Q4 release.', assignedTo: [5], status: 'To Do' as TaskStatus, importance: TaskImportance.MEDIUM },
+    { id: 4, projectId: 2, title: 'Upgrade CI/CD Pipeline', description: 'Migrate the existing pipeline to the new infrastructure.', assignedTo: [1], status: 'In Progress' as TaskStatus, importance: TaskImportance.HIGH, deadline: '2023-11-15' },
+    { id: 5, projectId: 2, title: 'End-to-end testing for Pipeline', description: 'Test the new CI/CD pipeline.', assignedTo: [5], status: 'To Do' as TaskStatus, importance: TaskImportance.LOW },
 ];
 
 export const NOTIFICATIONS: Notification[] = [];

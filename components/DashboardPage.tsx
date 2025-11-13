@@ -1,6 +1,5 @@
-
 import React from 'react';
-import { User, Role, Timesheet, LeaveRequest, Project, Status } from '../types';
+import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, TaskImportance } from '../types';
 import { BestEmployeeWidget } from './BestEmployeeWidget';
 
 interface DashboardPageProps {
@@ -9,6 +8,7 @@ interface DashboardPageProps {
   timesheets: Timesheet[];
   leaveRequests: LeaveRequest[];
   projects: Project[];
+  tasks: Task[];
   bestEmployeeIds: number[];
   setView: (view: any) => void;
 }
@@ -25,7 +25,7 @@ const StatsCard: React.FC<{ title: string; value: string | number; icon: React.R
     </div>
 );
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users, timesheets, leaveRequests, projects, bestEmployeeIds, setView }) => {
+export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users, timesheets, leaveRequests, projects, tasks, bestEmployeeIds, setView }) => {
     
     // --- Stat Calculations ---
     const myPendingTimesheets = timesheets.filter(t => t.userId === currentUser.id && t.status === Status.PENDING).length;
@@ -65,6 +65,20 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users
         ...timesheets.filter(t => t.status === Status.PENDING && (currentUser.role === Role.ADMIN || currentUser.role === Role.MANAGER ? true : users.find(u=>u.id === t.userId)?.managerId === currentUser.id)).map(t => ({...t, type: 'Timesheet', date: t.date})),
         ...leaveRequests.filter(l => l.status === Status.PENDING && (currentUser.role === Role.ADMIN || currentUser.role === Role.MANAGER ? true : users.find(u=>u.id === l.userId)?.managerId === currentUser.id)).map(l => ({...l, type: 'Leave', date: l.leaveEntries[0]?.date || ''}))
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5) : [];
+    
+    const myOpenTasks = tasks
+        .filter(t => t.assignedTo.includes(currentUser.id) && t.status !== 'Done')
+        .sort((a, b) => {
+            const importanceOrder = { [TaskImportance.HIGH]: 1, [TaskImportance.MEDIUM]: 2, [TaskImportance.LOW]: 3 };
+            const deadlineA = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+            const deadlineB = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+
+            if (importanceOrder[a.importance] !== importanceOrder[b.importance]) {
+                return importanceOrder[a.importance] - importanceOrder[b.importance];
+            }
+            return deadlineA - deadlineB;
+        });
+
 
     const getStatusBadge = (status: Status) => {
         const baseClasses = "px-2 py-0.5 text-xs font-medium rounded-full";
@@ -75,6 +89,16 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users
         }
     }
     
+    const getImportanceBadge = (importance: TaskImportance) => {
+        const baseClasses = "px-2 py-0.5 text-xs font-medium rounded-full";
+        switch(importance) {
+            case TaskImportance.HIGH: return `${baseClasses} bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300`;
+            case TaskImportance.MEDIUM: return `${baseClasses} bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300`;
+            case TaskImportance.LOW: return `${baseClasses} bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300`;
+            default: return `${baseClasses} bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-300`;
+        }
+    }
+
     const ICONS = {
         TIMESHEET: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
         LEAVE: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
@@ -104,6 +128,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ currentUser, users
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
+                    {myOpenTasks.length > 0 && (
+                        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold">My Open Tasks</h2>
+                                <button onClick={() => setView('TASKS')} className="text-sm font-medium text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-200">
+                                    View All
+                                </button>
+                            </div>
+                            <ul className="space-y-3">
+                                {myOpenTasks.slice(0, 5).map(task => (
+                                    <li key={task.id} className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg flex items-center justify-between text-sm">
+                                        <div>
+                                            <p className="font-semibold">{task.title}</p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                {projects.find(p => p.id === task.projectId)?.name}
+                                                {task.deadline && ` - Due: ${task.deadline}`}
+                                            </p>
+                                        </div>
+                                        <span className={getImportanceBadge(task.importance)}>{task.importance}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md">
                         <h2 className="text-xl font-bold mb-4">My Recent Activity</h2>
                         <ul className="space-y-3">
