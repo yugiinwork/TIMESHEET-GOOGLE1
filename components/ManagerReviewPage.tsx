@@ -114,7 +114,7 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
   const [activeTab, setActiveTab] = useState<'Pending' | 'History'>('Pending');
   const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [roleFilter, setRoleFilter] = useState<Role | ''>('');
+  const [statusFilter, setStatusFilter] = useState<Status | ''>('');
   const [projectFilter, setProjectFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('name_asc');
   const [exportStartDate, setExportStartDate] = useState<string>('');
@@ -245,10 +245,6 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
             return false;
         });
     }
-
-    if (roleFilter) {
-      filtered = filtered.filter(item => item.user!.role === roleFilter);
-    }
     
     if (isTimesheetPage && projectFilter) {
       const projectId = Number(projectFilter);
@@ -268,10 +264,17 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
     });
 
     return filtered;
-  }, [items, users, roleFilter, sortBy, searchQuery, projects, selectedDateFilter, projectFilter, isTimesheetPage]);
+  }, [items, users, sortBy, searchQuery, projects, selectedDateFilter, projectFilter, isTimesheetPage]);
 
   const pendingItems = processedItems.filter(i => i.status === Status.PENDING);
-  const historyItems = processedItems.filter(i => i.status !== Status.PENDING);
+  
+  const historyItems = useMemo(() => {
+    let history = processedItems.filter(i => i.status !== Status.PENDING);
+    if (statusFilter) {
+        history = history.filter(i => i.status === statusFilter);
+    }
+    return history;
+  }, [processedItems, statusFilter]);
 
   const renderTable = (data: ReviewItem[], isHistory: boolean) => (
     <div className="overflow-x-auto">
@@ -448,11 +451,18 @@ export const ManagerReviewPage: React.FC<ManagerReviewPageProps> = ({ title, ite
                 </div>
               )}
               <div className="flex-grow min-w-[150px]">
-                  <label htmlFor="role-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Role</label>
-                  <select id="role-filter" value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | '')} className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md">
-                      <option value="">All Roles</option>
-                      {Object.values(Role).map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                <label htmlFor="status-filter" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Status</label>
+                <select
+                    id="status-filter"
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value as Status | '')}
+                    className="w-full p-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={activeTab === 'Pending'}
+                >
+                    <option value="">All History</option>
+                    <option value={Status.APPROVED}>Approved</option>
+                    <option value={Status.REJECTED}>Rejected</option>
+                </select>
               </div>
               {isTimesheetPage && (
                   <div className="flex-grow min-w-[150px]">

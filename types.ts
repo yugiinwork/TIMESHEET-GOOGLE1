@@ -109,7 +109,7 @@ export interface Task {
     completionDate?: string;
 }
 
-export type View = 'DASHBOARD' | 'PROFILE' | 'TIMESHEETS' | 'LEAVE' | 'TEAM_TIMESHEETS' | 'TEAM_LEAVE' | 'PROJECTS' | 'USERS' | 'TASKS';
+export type View = 'DASHBOARD' | 'PROFILE' | 'TIMESHEETS' | 'LEAVE' | 'TEAM_TIMESHEETS' | 'TEAM_LEAVE' | 'PROJECTS' | 'USERS' | 'TASKS' | 'ANNOUNCEMENTS' | 'EMPLOYEE_DETAIL';
 
 // For persistent, user-specific notifications
 export interface Notification {
@@ -121,6 +121,7 @@ export interface Notification {
   linkTo?: View;
   createdAt: string; // ISO string
   dismissed: boolean;
+  isAnnouncement?: boolean;
 }
 
 // For ephemeral, on-screen toasts

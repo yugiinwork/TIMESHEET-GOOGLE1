@@ -1,4 +1,3 @@
-
 import { User, Timesheet, LeaveRequest, Project, Task, Notification } from '../types';
 import { USERS, TIMESHEETS, LEAVE_REQUESTS, PROJECTS, TASKS, NOTIFICATIONS } from '../constants';
 
@@ -15,6 +14,7 @@ interface AppData {
   tasks: Task[];
   notifications: Notification[];
   bestEmployeeIds: number[];
+  bestEmployeeOfYearIds: number[];
 }
 
 const initialState: AppData = {
@@ -25,6 +25,7 @@ const initialState: AppData = {
   tasks: TASKS,
   notifications: NOTIFICATIONS,
   bestEmployeeIds: [1, 5],
+  bestEmployeeOfYearIds: [],
 };
 
 let db: AppData;
@@ -48,7 +49,12 @@ const loadDb = (): AppData => {
 
         // Ensure bestEmployeeIds exists for older data structures
         if (!parsed.bestEmployeeIds) {
-          parsed.bestEmployeeIds = [1];
+          parsed.bestEmployeeIds = [1, 5];
+        }
+
+        // Ensure bestEmployeeOfYearIds exists
+        if (!parsed.bestEmployeeOfYearIds) {
+            parsed.bestEmployeeOfYearIds = [];
         }
         
         return parsed;
@@ -134,6 +140,12 @@ export const cloudscaleApi = {
     db.bestEmployeeIds = userIds;
     saveDb();
     return callApi(db.bestEmployeeIds);
+  },
+  
+  updateBestEmployeeOfYear: (userIds: number[]): Promise<number[]> => {
+    db.bestEmployeeOfYearIds = userIds;
+    saveDb();
+    return callApi(db.bestEmployeeOfYearIds);
   },
 
   login: (email: string, password?: string): Promise<User | null> => {

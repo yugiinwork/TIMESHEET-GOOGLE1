@@ -6,7 +6,6 @@ interface ProjectManagementPageProps {
   setProjects: (updater: React.SetStateAction<Project[]>) => Promise<void>;
   users: User[];
   currentUser: User;
-  onSetBestEmployee: () => void;
   onExport?: () => void;
   tasks: Task[];
   setTasks: (updater: React.SetStateAction<Task[]>) => Promise<void>;
@@ -102,10 +101,9 @@ const TaskModal: React.FC<{
     )
 };
 
-
 // --- Main Component ---
 
-export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ projects, setProjects, users, currentUser, onSetBestEmployee, onExport, tasks, setTasks, addToastNotification, addNotification }) => {
+export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ projects, setProjects, users, currentUser, onExport, tasks, setTasks, addToastNotification, addNotification }) => {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Omit<Project, 'id'> | Project>(emptyProject(currentUser.id, currentUser.company || ''));
   const [searchQuery, setSearchQuery] = useState('');
@@ -120,7 +118,6 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
   const employees = users.filter(u => u.role === Role.EMPLOYEE);
   const canEditProjects = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
   const canManageTasks = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
-  const canSetBestEmployee = [Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
 
   const filteredProjects = useMemo(() => {
     if (!searchQuery) {
@@ -363,6 +360,8 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
     )
   }
 
+  const ongoingProjects = projects.filter(p => p.status === ProjectStatus.IN_PROGRESS);
+
   return (
     <div>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -385,14 +384,6 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                  </button>
             )}
-            {canSetBestEmployee && (
-                 <button
-                    onClick={onSetBestEmployee}
-                    className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-2"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-                </button>
-            )}
             {canEditProjects && (
               <button
                 onClick={() => openProjectModal()}
@@ -403,50 +394,74 @@ export const ProjectManagementPage: React.FC<ProjectManagementPageProps> = ({ pr
             )}
         </div>
       </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {filteredProjects.map(project => (
+              <div key={project.id} onClick={() => setSelectedProject(project)} className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-6 flex flex-col hover:shadow-xl hover:ring-2 hover:ring-sky-500 transition-all cursor-pointer">
+                <div className="flex justify-between items-start">
+                  <h2 className="text-xl font-bold text-sky-600 dark:text-sky-400">{project.name}</h2>
+                  <span className={getStatusBadge(project.status)}>{project.status}</span>
+                </div>
+                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{project.jobName}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Customer: {project.customerName}</p>
+                
+                <div className="grid grid-cols-2 gap-4 my-4 text-center">
+                    <div>
+                        <div className="text-xs text-slate-400">Estimated Hours</div>
+                        <div className="text-lg font-bold">{project.estimatedHours}</div>
+                    </div>
+                     <div>
+                        <div className="text-xs text-slate-400">Actual Hours</div>
+                        <div className="text-lg font-bold">{project.actualHours}</div>
+                    </div>
+                </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredProjects.map(project => (
-          <div key={project.id} onClick={() => setSelectedProject(project)} className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-6 flex flex-col hover:shadow-xl hover:ring-2 hover:ring-sky-500 transition-all cursor-pointer">
-            <div className="flex justify-between items-start">
-              <h2 className="text-xl font-bold text-sky-600 dark:text-sky-400">{project.name}</h2>
-              <span className={getStatusBadge(project.status)}>{project.status}</span>
-            </div>
-            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{project.jobName}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Customer: {project.customerName}</p>
-            
-            <div className="grid grid-cols-2 gap-4 my-4 text-center">
-                <div>
-                    <div className="text-xs text-slate-400">Estimated Hours</div>
-                    <div className="text-lg font-bold">{project.estimatedHours}</div>
+                <p className="mt-2 flex-grow text-slate-700 dark:text-slate-300 text-sm">{project.description}</p>
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <h4 className="font-semibold text-sm">Team:</h4>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        {project.teamIds.map(id => users.find(u => u.id === id)).filter(Boolean).map(member => (
+                            <div key={member!.id} className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-700 rounded-full pr-3 py-0.5">
+                                <img src={member!.profilePictureUrl || `https://picsum.photos/seed/${member!.id}/32`} alt={member!.name} className="w-6 h-6 rounded-full" />
+                                <span className="text-xs">{member!.name}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                 <div>
-                    <div className="text-xs text-slate-400">Actual Hours</div>
-                    <div className="text-lg font-bold">{project.actualHours}</div>
-                </div>
-            </div>
-
-            <p className="mt-2 flex-grow text-slate-700 dark:text-slate-300 text-sm">{project.description}</p>
-            <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <h4 className="font-semibold text-sm">Team:</h4>
-                <div className="flex flex-wrap gap-2 mt-2">
-                    {project.teamIds.map(id => users.find(u => u.id === id)).filter(Boolean).map(member => (
-                        <div key={member!.id} className="flex items-center space-x-2 bg-slate-100 dark:bg-slate-700 rounded-full pr-3 py-0.5">
-                            <img src={member!.profilePictureUrl || `https://picsum.photos/seed/${member!.id}/32`} alt={member!.name} className="w-6 h-6 rounded-full" />
-                            <span className="text-xs">{member!.name}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-            {canEditProjects && (
-              <div className="mt-6 text-right">
-                <button onClick={(e) => { e.stopPropagation(); openProjectModal(project);}} className="text-sky-600 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-200 text-sm font-medium">
-                  Edit Project Info
-                </button>
+                {canEditProjects && (
+                  <div className="mt-6 text-right">
+                    <button onClick={(e) => { e.stopPropagation(); openProjectModal(project);}} className="text-sky-600 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-200 text-sm font-medium">
+                      Edit Project Info
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            ))}
+        </div>
+        <div className="lg:col-span-1 space-y-6">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-bold mb-4">Ongoing Projects</h2>
+                <ul className="space-y-4">
+                    {ongoingProjects.length > 0 ? ongoingProjects.map(p => {
+                        const progress = p.estimatedHours > 0 ? Math.min(Math.round((p.actualHours / p.estimatedHours) * 100), 100) : 0;
+                        return (
+                            <li key={p.id}>
+                                <div className="flex justify-between items-center text-sm font-semibold mb-1">
+                                    <span className="text-slate-700 dark:text-slate-200 truncate pr-2">{p.name}</span>
+                                    <span className="text-sky-600 dark:text-sky-400">{progress}%</span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
+                                    <div className="bg-sky-500 h-2 rounded-full" style={{width: `${progress}%`}}></div>
+                                </div>
+                            </li>
+                        );
+                    }) : <p className="text-sm text-center text-slate-500 dark:text-slate-400">No projects are currently in progress.</p>}
+                </ul>
+            </div>
+        </div>
       </div>
+
 
       {isProjectModalOpen && canEditProjects && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

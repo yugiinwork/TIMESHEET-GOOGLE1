@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Role, Timesheet, LeaveRequest, Project, Status, Task, ToastNotification, Notification, View, WorkEntry, ProjectWork, LeaveEntry } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -14,6 +15,10 @@ import { DashboardPage } from './components/DashboardPage';
 import { NotificationToast } from './components/NotificationToast';
 import { NotificationCenter } from './components/NotificationCenter';
 import { cloudscaleApi, LOCAL_STORAGE_KEY } from './api/cloudscale';
+import { AnnouncementsPage } from './components/AnnouncementsPage';
+import { SetBestEmployeeOfYearModal } from './components/SetBestEmployeeOfYearModal';
+import { EmployeeDetailPage } from './components/EmployeeDetailPage';
+
 
 // Declare XLSX for the linter since it's loaded from a script tag.
 declare var XLSX: any;
@@ -26,6 +31,7 @@ const emptyState = {
   tasks: [],
   notifications: [],
   bestEmployeeIds: [],
+  bestEmployeeOfYearIds: [],
 };
 
 
@@ -36,10 +42,14 @@ const App: React.FC = () => {
   
   // --- Local UI State ---
   const [isBestEmployeeModalOpen, setIsBestEmployeeModalOpen] = useState(false);
+  const [isBestEmployeeOfYearModalOpen, setIsBestEmployeeOfYearModalOpen] = useState(false);
   const [toastNotifications, setToastNotifications] = useState<ToastNotification[]>([]);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [loading, setLoading] = useState(true);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [viewedEmployeeId, setViewedEmployeeId] = useState<number | null>(null);
 
 
   // --- Real-time Global State ---
@@ -108,7 +118,7 @@ const App: React.FC = () => {
   }, [currentUser]); // Depend on currentUser to avoid stale closures
 
   // --- Destructure data for easier access ---
-  const { users, timesheets, leaveRequests, projects, tasks, notifications, bestEmployeeIds } = appData;
+  const { users, timesheets, leaveRequests, projects, tasks, notifications, bestEmployeeIds, bestEmployeeOfYearIds } = appData;
 
   // --- Create async setters that update global state via API ---
   const setUsers = async (value: React.SetStateAction<User[]>) => {
@@ -178,6 +188,32 @@ const App: React.FC = () => {
     }
     return [];
   }, [currentUser, companyUsers]);
+
+  const { pendingTimesheetCount, pendingLeaveCount } = useMemo(() => {
+    if (!currentUser || ![Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role)) {
+        return { pendingTimesheetCount: 0, pendingLeaveCount: 0 };
+    }
+
+    const companyUserIds = companyUsers.map(u => u.id);
+    const teamMemberIds = teamMembers.map(tm => tm.id);
+    const isManagerOrAdmin = [Role.ADMIN, Role.MANAGER].includes(currentUser.role);
+
+    const timesheetCount = timesheets.filter(t => {
+        const isPending = t.status === Status.PENDING;
+        const isVisible = isManagerOrAdmin ? companyUserIds.includes(t.userId) : teamMemberIds.includes(t.userId);
+        return isPending && isVisible;
+    }).length;
+
+    const leaveCount = leaveRequests.filter(l => {
+        const isPending = l.status === Status.PENDING;
+        const isVisible = isManagerOrAdmin ? companyUserIds.includes(l.userId) : teamMemberIds.includes(l.userId);
+        return isPending && isVisible;
+    }).length;
+
+    return { pendingTimesheetCount: timesheetCount, pendingLeaveCount: leaveCount };
+
+  }, [currentUser, companyUsers, teamMembers, timesheets, leaveRequests]);
+
 
   useEffect(() => {
     const projectsWithUpdatedHours = projects.map(p => {
@@ -476,6 +512,25 @@ const App: React.FC = () => {
     setToastNotifications(prev => [...prev, newToast]);
   };
 
+  const showBrowserNotification = (title: string, options: NotificationOptions & { linkTo?: View }) => {
+    if (notificationPermission !== 'granted') {
+        return;
+    }
+
+    const notification = new Notification(title, {
+        body: options.body,
+        icon: '/vite.svg', // You can replace this with a proper app icon URL
+    });
+
+    if (options.linkTo) {
+        notification.onclick = () => {
+            window.focus(); // Focus the tab
+            setView(options.linkTo!);
+            notification.close();
+        };
+    }
+  };
+
   const addNotification = async (payload: Omit<Notification, 'id' | 'read' | 'createdAt' | 'dismissed'>) => {
     const newNotification: Notification = {
         ...payload,
@@ -485,6 +540,11 @@ const App: React.FC = () => {
         dismissed: false,
     };
     await setNotifications(prev => [...prev, newNotification]);
+
+    const targetUser = users.find(u => u.id === payload.userId);
+    if (targetUser && currentUser && targetUser.id === currentUser.id) {
+        showBrowserNotification(payload.title, { body: payload.message, linkTo: payload.linkTo });
+    }
   }
   
   const dismissNotification = async (notificationId: number) => {
@@ -502,6 +562,43 @@ const App: React.FC = () => {
   const dismissAllNotifications = async () => {
     if (!currentUser) return;
     await setNotifications(prev => prev.map(n => n.userId === currentUser.id && !n.dismissed ? {...n, dismissed: true, read: true } : n));
+  };
+
+  const handleSendAnnouncement = async (title: string, message: string) => {
+    if (!currentUser || ![Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role)) {
+        addToastNotification("You do not have permission to send announcements.", "Error");
+        return;
+    }
+    
+    const newNotifications: Notification[] = companyUsers.map(user => ({
+        id: Date.now() + user.id, // semi-unique id
+        userId: user.id,
+        title,
+        message,
+        read: false,
+        createdAt: new Date().toISOString(),
+        dismissed: false,
+        isAnnouncement: true,
+    }));
+
+    await setNotifications(prev => [...prev, ...newNotifications]);
+    addToastNotification("Your announcement has been sent to all users.", "Announcement Sent");
+
+    // Also send a browser notification to the current user (the admin)
+    if (companyUsers.some(u => u.id === currentUser.id)) {
+        showBrowserNotification(`Announcement: ${title}`, { body: message, linkTo: 'DASHBOARD' });
+    }
+  };
+  
+  const requestNotificationPermission = async () => {
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if (permission === 'granted') {
+        addToastNotification('Browser notifications have been enabled!', 'Success');
+        showBrowserNotification('Notifications Enabled', { body: 'You will now receive updates from Timesheet Pro.' });
+    } else {
+        addToastNotification('Browser notifications are disabled. You can change this in your browser settings.', 'Info');
+    }
   };
 
   const userNotifications = useMemo(() => {
@@ -533,7 +630,22 @@ const App: React.FC = () => {
     if (authView === 'login') {
         return (
           <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900">
-            <div className="max-w-md w-full bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg">
+            <div className="relative max-w-md w-full bg-white dark:bg-slate-800 p-8 rounded-lg shadow-lg">
+               <button 
+                  onClick={toggleTheme} 
+                  className="absolute top-4 right-4 p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  aria-label="Toggle dark mode"
+                >
+                  {theme === 'light' ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  )}
+                </button>
               <div className="flex items-center justify-center gap-3 mb-6">
                 <div className="bg-sky-500 rounded-lg p-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -557,12 +669,6 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </form>
-               <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Don't have an account?{' '}
-                  <button onClick={() => { setAuthView('signup'); setError(''); setSuccessMessage(''); }} className="font-medium text-sky-600 hover:text-sky-500">
-                    Sign up
-                  </button>
-                </p>
             </div>
           </div>
         );
@@ -666,6 +772,12 @@ const App: React.FC = () => {
     setIsBestEmployeeModalOpen(false);
   }
 
+  const handleSetBestEmployeeOfYear = async (userIds: number[]) => {
+    await cloudscaleApi.updateBestEmployeeOfYear(userIds);
+    setAppData(prev => ({ ...prev, bestEmployeeOfYearIds: userIds }));
+    setIsBestEmployeeOfYearModalOpen(false);
+  };
+
   const renderView = () => {
     const canExport = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
     const companyUserIds = companyUsers.map(u => u.id);
@@ -680,6 +792,7 @@ const App: React.FC = () => {
             projects={companyProjects}
             tasks={tasks}
             bestEmployeeIds={bestEmployeeIds}
+            bestEmployeeOfYearIds={bestEmployeeOfYearIds}
             setView={setView}
         />;
       case 'PROFILE':
@@ -740,7 +853,18 @@ const App: React.FC = () => {
             items={itemsToReview}
             users={companyUsers}
             currentUser={currentUser}
-            onUpdateStatus={async (id, status) => await setTimesheets(prev => prev.map(t => t.id === id ? {...t, status, approverId: currentUser.id} : t))}
+            onUpdateStatus={async (id, status) => {
+                const timesheet = timesheets.find(t => t.id === id);
+                if (timesheet) {
+                    await addNotification({
+                        userId: timesheet.userId,
+                        title: `Timesheet ${status}`,
+                        message: `Your timesheet for ${timesheet.date} has been ${status.toLowerCase()} by ${currentUser.name}.`,
+                        linkTo: 'TIMESHEETS'
+                    });
+                }
+                await setTimesheets(prev => prev.map(t => t.id === id ? {...t, status, approverId: currentUser.id} : t))
+            }}
             canApprove={canApproveItems}
             projects={companyProjects}
             tasks={tasks}
@@ -766,8 +890,18 @@ const App: React.FC = () => {
             items={itemsToReview}
             users={companyUsers}
             currentUser={currentUser}
-            // FIX: Corrected a typo where 't' was used instead of 'l' in the map function's else clause.
-            onUpdateStatus={async (id, status) => await setLeaveRequests(prev => prev.map(l => l.id === id ? {...l, status, approverId: currentUser.id} : l))}
+            onUpdateStatus={async (id, status) => {
+                const leaveRequest = leaveRequests.find(l => l.id === id);
+                if (leaveRequest) {
+                    await addNotification({
+                        userId: leaveRequest.userId,
+                        title: `Leave Request ${status}`,
+                        message: `Your leave request for ${leaveRequest.leaveEntries[0]?.date} has been ${status.toLowerCase()} by ${currentUser.name}.`,
+                        linkTo: 'LEAVE'
+                    });
+                }
+                await setLeaveRequests(prev => prev.map(l => l.id === id ? {...l, status, approverId: currentUser.id} : l))
+            }}
             canApprove={canApproveItems}
             projects={companyProjects}
             tasks={tasks}
@@ -783,7 +917,6 @@ const App: React.FC = () => {
             setProjects={setProjects}
             users={companyUsers}
             currentUser={currentUser}
-            onSetBestEmployee={() => setIsBestEmployeeModalOpen(true)}
             onExport={canExport ? handleExportProjects : undefined}
             tasks={companyTasks}
             setTasks={setTasks}
@@ -791,12 +924,54 @@ const App: React.FC = () => {
             addToastNotification={addToastNotification}
         />;
       }
-      case 'USERS':
+      case 'USERS': {
+        const usersForView = (currentUser.role === Role.TEAM_LEADER) 
+            ? teamMembers 
+            : companyUsers;
+        
+        const companyTimesheets = timesheets.filter(t => companyUserIds.includes(t.userId));
+        const companyLeaveRequests = leaveRequests.filter(l => companyUserIds.includes(l.userId));
+
         return <UserManagementPage 
-            users={companyUsers}
+            users={usersForView}
+            allUsers={companyUsers}
             setUsers={setUsers}
             currentUser={currentUser}
             onDeleteUser={handleDeleteUser}
+            projects={companyProjects}
+            timesheets={companyTimesheets}
+            leaveRequests={companyLeaveRequests}
+            onSetBestEmployee={() => setIsBestEmployeeModalOpen(true)}
+            onSetBestEmployeeOfYear={() => setIsBestEmployeeOfYearModalOpen(true)}
+            onViewEmployee={(userId) => {
+                setViewedEmployeeId(userId);
+                setView('EMPLOYEE_DETAIL');
+            }}
+        />;
+      }
+      case 'EMPLOYEE_DETAIL': {
+        const employee = companyUsers.find(u => u.id === viewedEmployeeId);
+        if (!employee) {
+            setView('USERS');
+            return null; // or a loading/error state
+        }
+        return <EmployeeDetailPage
+            employee={employee}
+            timesheets={timesheets.filter(t => t.userId === viewedEmployeeId)}
+            leaveRequests={leaveRequests.filter(l => l.userId === viewedEmployeeId)}
+            projects={companyProjects}
+            onBack={() => {
+                setViewedEmployeeId(null);
+                setView('USERS');
+            }}
+            allUsers={companyUsers}
+        />;
+      }
+      case 'ANNOUNCEMENTS':
+        return <AnnouncementsPage
+            currentUser={currentUser}
+            notifications={notifications}
+            onSendAnnouncement={handleSendAnnouncement}
         />;
       default:
         return <ProfilePage user={currentUser} onUpdateUser={handleUpdateUser} currentUser={currentUser} />;
@@ -805,21 +980,34 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+      {isSidebarOpen && (
+          <div 
+              className="fixed inset-0 bg-black/30 z-30 lg:hidden"
+              onClick={() => setIsSidebarOpen(false)}
+          ></div>
+      )}
       <Sidebar 
         user={currentUser} 
         setView={setView} 
         currentView={view} 
         onLogout={handleLogout}
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+        pendingTimesheetCount={pendingTimesheetCount}
+        pendingLeaveCount={pendingLeaveCount}
       />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden lg:ml-64">
         <Header 
             user={currentUser} 
-            theme={theme} 
-            onToggleTheme={toggleTheme} 
+            onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
             userNotifications={userNotifications}
             onToggleNotifications={() => setIsNotificationCenterOpen(prev => !prev)}
+            notificationPermission={notificationPermission}
+            onRequestNotificationPermission={requestNotificationPermission}
+            theme={theme}
+            onToggleTheme={toggleTheme}
         />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6 lg:p-8 hide-scrollbar">
           {renderView()}
         </main>
       </div>
@@ -829,6 +1017,14 @@ const App: React.FC = () => {
             onClose={() => setIsBestEmployeeModalOpen(false)}
             onSet={handleSetBestEmployees}
             selectedIds={bestEmployeeIds}
+        />
+      )}
+       {isBestEmployeeOfYearModalOpen && (
+        <SetBestEmployeeOfYearModal
+            users={companyUsers.filter(u => u.role === Role.EMPLOYEE || u.role === Role.TEAM_LEADER)}
+            onClose={() => setIsBestEmployeeOfYearModalOpen(false)}
+            onSet={handleSetBestEmployeeOfYear}
+            selectedIds={bestEmployeeOfYearIds}
         />
       )}
       <NotificationCenter

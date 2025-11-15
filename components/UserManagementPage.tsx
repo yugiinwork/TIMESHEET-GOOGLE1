@@ -1,12 +1,18 @@
-
 import React, { useState } from 'react';
-import { User, Role } from '../types';
+import { User, Role, Project, Timesheet, LeaveRequest, Status } from '../types';
 
 interface UserManagementPageProps {
-  users: User[];
+  users: User[]; // The users to display (team members for TL, all for manager/admin)
+  allUsers: User[]; // All users in the company for lookups
   setUsers: (updater: React.SetStateAction<User[]>) => Promise<void>;
   currentUser: User;
   onDeleteUser: (userId: number) => Promise<void>;
+  projects: Project[];
+  timesheets: Timesheet[];
+  leaveRequests: LeaveRequest[];
+  onSetBestEmployee: () => void;
+  onSetBestEmployeeOfYear: () => void;
+  onViewEmployee: (userId: number) => void;
 }
 
 const emptyUser = (currentUser: User): Omit<User, 'id'> => ({
@@ -22,12 +28,27 @@ const emptyUser = (currentUser: User): Omit<User, 'id'> => ({
   company: currentUser.company,
 });
 
-export const UserManagementPage: React.FC<UserManagementPageProps> = ({ users, setUsers, currentUser, onDeleteUser }) => {
+export const UserManagementPage: React.FC<UserManagementPageProps> = ({ 
+    users, 
+    allUsers,
+    setUsers, 
+    currentUser, 
+    onDeleteUser,
+    projects,
+    timesheets,
+    leaveRequests,
+    onSetBestEmployee,
+    onSetBestEmployeeOfYear,
+    onViewEmployee,
+}) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Omit<User, 'id'> | User>(emptyUser(currentUser));
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   
-  const managersAndLeaders = users.filter(u => u.role === Role.MANAGER || u.role === Role.ADMIN || u.role === Role.TEAM_LEADER);
+  const managersAndLeaders = allUsers.filter(u => u.role === Role.MANAGER || u.role === Role.ADMIN || u.role === Role.TEAM_LEADER);
+
+  const isManagerial = [Role.ADMIN, Role.MANAGER, Role.TEAM_LEADER].includes(currentUser.role);
+  const isAdmin = currentUser.role === Role.ADMIN;
 
   const openModal = (user?: User) => {
     setEditingUser(user || emptyUser(currentUser));
@@ -67,52 +88,68 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ users, s
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-slate-800 dark:text-white">User Management</h1>
-        <button
-          onClick={() => openModal()}
-          className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition"
-        >
-          Create User
-        </button>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <h1 className="text-3xl font-bold text-slate-800 dark:text-white">
+            {isAdmin ? 'User Management' : 'My Team'}
+        </h1>
+        <div className="flex items-center gap-2">
+            {isManagerial && (
+                <>
+                    <button
+                        onClick={onSetBestEmployee}
+                        className="px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition flex items-center gap-2 text-sm"
+                        title="Set Employee of the Month"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                        <span>EOM</span>
+                    </button>
+                    <button
+                        onClick={onSetBestEmployeeOfYear}
+                        className="px-3 py-2 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition flex items-center gap-2 text-sm"
+                        title="Set Employee of the Year"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                        <span>EOY</span>
+                    </button>
+                </>
+            )}
+            {isAdmin && (
+                <button
+                    onClick={() => openModal()}
+                    className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition text-sm"
+                >
+                    Create User
+                </button>
+            )}
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 shadow-md rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-              <thead className="bg-slate-50 dark:bg-slate-700">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Designation</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Company</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Email</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Role</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
-                {users.map(user => (
-                  <tr key={user.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{user.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{user.designation}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{user.company || 'N/A'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{user.email}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">{user.role}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
-                      <button onClick={() => openModal(user)} className="text-sky-600 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-200">Edit</button>
-                      <button 
-                        onClick={() => setUserToDelete(user)} 
-                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-200 disabled:text-slate-400 disabled:cursor-not-allowed"
-                        disabled={user.id === currentUser.id}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {users.map(user => {
+            return (
+                <div 
+                    key={user.id} 
+                    onClick={() => onViewEmployee(user.id)}
+                    className="bg-white dark:bg-slate-800 shadow-md rounded-lg p-5 flex flex-col items-center text-center cursor-pointer hover:ring-2 hover:ring-sky-500 transition-all duration-200"
+                >
+                    <div className="relative w-full h-5">
+                         {isAdmin && user.id !== currentUser.id && (
+                            <div className="absolute top-0 right-0 flex items-center gap-1">
+                                <button onClick={(e) => { e.stopPropagation(); openModal(user); }} className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full" aria-label="Edit user"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L16.732 3.732z" /></svg></button>
+                                <button onClick={(e) => { e.stopPropagation(); setUserToDelete(user); }} className="p-2 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label="Delete user"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                            </div>
+                         )}
+                    </div>
+                    
+                    <img src={user.profilePictureUrl || `https://picsum.photos/seed/${user.id}/100`} alt={user.name} className="w-24 h-24 rounded-full object-cover mb-4 flex-shrink-0"/>
+                    
+                    <div className="flex-grow flex flex-col justify-center">
+                        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{user.name}</h3>
+                        <p className="text-sm text-sky-600 dark:text-sky-400">{user.designation}</p>
+                    </div>
+                </div>
+            )
+        })}
       </div>
 
       {isModalOpen && (

@@ -155,7 +155,7 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
             if (currentUser.role === Role.ADMIN) return true; // project is optional for admin
             return !!we.projectId; // project is required for others
         })
-        .reduce((acc, current) => {
+        .reduce((acc: Record<number, WorkEntry[]>, current) => {
             const projectId = (current.projectId === '' && currentUser.role === Role.ADMIN) 
                 ? 0 
                 : current.projectId as number;
@@ -165,11 +165,12 @@ export const TimesheetPage: React.FC<TimesheetPageProps> = ({ currentUser, users
             }
             acc[projectId].push({ description: current.description, hours: current.hours });
             return acc;
-        }, {} as Record<number, WorkEntry[]>);
+        }, {});
 
-    const finalProjectWork: ProjectWork[] = Object.entries(workByProject).map(([projectId, workEntries]) => ({
-        projectId: Number(projectId),
-        workEntries,
+    // FIX: Replaced Object.entries with Object.keys().map() to avoid type inference issues.
+    const finalProjectWork: ProjectWork[] = Object.keys(workByProject).map((projectIdStr) => ({
+        projectId: Number(projectIdStr),
+        workEntries: workByProject[Number(projectIdStr)],
     }));
 
     if (finalProjectWork.length === 0) {

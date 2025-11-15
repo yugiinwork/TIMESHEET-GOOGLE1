@@ -7,6 +7,10 @@ interface SidebarProps {
   setView: (view: any) => void;
   currentView: string;
   onLogout: () => void;
+  isOpen: boolean;
+  setIsOpen: (isOpen: boolean) => void;
+  pendingTimesheetCount: number;
+  pendingLeaveCount: number;
 }
 
 const NavLink: React.FC<{
@@ -15,21 +19,40 @@ const NavLink: React.FC<{
   currentView: string;
   setView: (view: string) => void;
   icon: React.ReactElement;
-}> = ({ label, view, currentView, setView, icon }) => (
-  <button
-    onClick={() => setView(view)}
-    className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${
-      currentView === view
-        ? 'bg-sky-500 text-white font-semibold'
-        : 'text-slate-500 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-700'
-    }`}
-  >
-    {icon}
-    <span className="truncate">{label}</span>
-  </button>
-);
+  setIsOpen: (isOpen: boolean) => void;
+  badgeCount?: number;
+}> = ({ label, view, currentView, setView, icon, setIsOpen, badgeCount }) => {
+  const isActive = currentView === view;
+  return (
+    <button
+      onClick={() => {
+          setView(view);
+          setIsOpen(false);
+      }}
+      className={`w-full flex items-center justify-between space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 ${
+        isActive
+          ? 'bg-sky-500 text-white font-semibold'
+          : 'text-slate-500 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-700'
+      }`}
+    >
+      <div className="flex items-center space-x-3">
+          {icon}
+          <span className="truncate">{label}</span>
+      </div>
+      {badgeCount && badgeCount > 0 && (
+          <span className={`text-xs font-bold rounded-full h-5 min-w-5 px-1.5 flex items-center justify-center transition-colors duration-200 ${
+              isActive
+                ? 'bg-white text-sky-600'
+                : 'bg-sky-500 text-white'
+          }`}>
+              {badgeCount}
+          </span>
+      )}
+    </button>
+  );
+}
 
-export const Sidebar: React.FC<SidebarProps> = ({ user, setView, currentView, onLogout }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ user, setView, currentView, onLogout, isOpen, setIsOpen, pendingTimesheetCount, pendingLeaveCount }) => {
   const role = user.role;
 
   const ICONS = {
@@ -41,42 +64,50 @@ export const Sidebar: React.FC<SidebarProps> = ({ user, setView, currentView, on
     TASKS: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>,
     USERS: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
     LOGOUT: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>,
+    // FIX: Corrected a typo in the strokeWidth property of the SVG path. It was `strokeWidth="2}` which is invalid JSX. It is now correctly set to `{2}`.
+    ANNOUNCEMENTS: <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-2.236 9.168-5.584C18.35 0 18.68 0 19 0c.23 0 .44.04.66.11a.387.387 0 01.168.616C19.165 2.245 18 4.09 18 6h-1a1 1 0 00-1 1v8a1 1 0 001 1h1a1 1 0 001-1v-2.582m-7 0a3 3 0 01-3 3H5.436a3 3 0 01-3-3V6a3 3 0 013-3h5.436a3 3 0 013 3v5.118z" /></svg>,
   };
 
   return (
-    <div className="w-64 bg-white dark:bg-slate-800 flex flex-col p-4 border-r border-slate-200 dark:border-slate-700">
-      <div className="mb-8 flex items-center gap-3">
+    <div className={`fixed inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 flex flex-col p-4 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out z-40 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className="mb-8 flex items-center gap-3 flex-shrink-0">
         <div className="bg-sky-500 rounded-lg p-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
         </div>
         <h1 className="text-xl font-bold text-slate-800 dark:text-white">Timesheet Pro</h1>
       </div>
       
-      <nav className="flex-1 space-y-2">
+      <nav className="flex-1 space-y-2 overflow-y-auto hide-scrollbar">
         <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase">My Space</div>
-        <NavLink label="Dashboard" view="DASHBOARD" currentView={currentView} setView={setView} icon={ICONS.DASHBOARD} />
-        <NavLink label="Profile" view="PROFILE" currentView={currentView} setView={setView} icon={ICONS.PROFILE} />
-        <NavLink label="My Timesheets" view="TIMESHEETS" currentView={currentView} setView={setView} icon={ICONS.TIMESHEETS} />
-        <NavLink label="My Leave" view="LEAVE" currentView={currentView} setView={setView} icon={ICONS.LEAVE} />
-        <NavLink label="My Tasks" view="TASKS" currentView={currentView} setView={setView} icon={ICONS.TASKS} />
+        <NavLink label="Dashboard" view="DASHBOARD" currentView={currentView} setView={setView} icon={ICONS.DASHBOARD} setIsOpen={setIsOpen} />
+        <NavLink label="Profile" view="PROFILE" currentView={currentView} setView={setView} icon={ICONS.PROFILE} setIsOpen={setIsOpen} />
+        <NavLink label="My Timesheets" view="TIMESHEETS" currentView={currentView} setView={setView} icon={ICONS.TIMESHEETS} setIsOpen={setIsOpen} />
+        <NavLink label="My Leave" view="LEAVE" currentView={currentView} setView={setView} icon={ICONS.LEAVE} setIsOpen={setIsOpen} />
+        <NavLink label="My Tasks" view="TASKS" currentView={currentView} setView={setView} icon={ICONS.TASKS} setIsOpen={setIsOpen} />
         
         <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase">Company</div>
-        <NavLink label="Projects" view="PROJECTS" currentView={currentView} setView={setView} icon={ICONS.PROJECTS} />
+        <NavLink label="Projects" view="PROJECTS" currentView={currentView} setView={setView} icon={ICONS.PROJECTS} setIsOpen={setIsOpen} />
 
         {(role === Role.MANAGER || role === Role.TEAM_LEADER || role === Role.ADMIN) && (
             <>
                 <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-400 uppercase">
                     {role === Role.ADMIN ? 'Admin' : 'Management'}
                 </div>
-                <NavLink label="Review Timesheets" view="TEAM_TIMESHEETS" currentView={currentView} setView={setView} icon={ICONS.TIMESHEETS} />
-                <NavLink label="Review Leave" view="TEAM_LEAVE" currentView={currentView} setView={setView} icon={ICONS.LEAVE} />
-                {role === Role.ADMIN && (
-                    <NavLink label="User Management" view="USERS" currentView={currentView} setView={setView} icon={ICONS.USERS} />
-                )}
+                <NavLink label="Review Timesheets" view="TEAM_TIMESHEETS" currentView={currentView} setView={setView} icon={ICONS.TIMESHEETS} setIsOpen={setIsOpen} badgeCount={pendingTimesheetCount} />
+                <NavLink label="Review Leave" view="TEAM_LEAVE" currentView={currentView} setView={setView} icon={ICONS.LEAVE} setIsOpen={setIsOpen} badgeCount={pendingLeaveCount} />
+                 <NavLink 
+                    label={role === Role.ADMIN ? "User Management" : "My Team"} 
+                    view="USERS" 
+                    currentView={currentView} 
+                    setView={setView} 
+                    icon={ICONS.USERS} 
+                    setIsOpen={setIsOpen} 
+                />
+                <NavLink label="Site Notifications" view="ANNOUNCEMENTS" currentView={currentView} setView={setView} icon={ICONS.ANNOUNCEMENTS} setIsOpen={setIsOpen} />
             </>
         )}
       </nav>
-      <div className="mt-auto">
+      <div className="mt-auto flex-shrink-0">
         <button
           onClick={onLogout}
           className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 text-slate-500 dark:text-slate-400 hover:bg-red-100 dark:hover:bg-red-900/50 hover:text-red-600 dark:hover:text-red-400"

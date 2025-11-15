@@ -91,8 +91,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
               <div className="flex items-start gap-3">
                 {!n.read && activeTab === 'new' && <div className="mt-1.5 h-2 w-2 rounded-full bg-sky-500 flex-shrink-0 animate-pulse"></div>}
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{n.title}</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">{n.message}</p>
+                  <div className="flex items-center gap-2">
+                    {n.isAnnouncement && (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-2.236 9.168-5.584C18.35 0 18.68 0 19 0c.23 0 .44.04.66.11a.387.387 0 01.168.616C19.165 2.245 18 4.09 18 6h-1a1 1 0 00-1 1v8a1 1 0 001 1h1a1 1 0 001-1v-2.582m-7 0a3 3 0 01-3 3H5.436a3 3 0 01-3-3V6a3 3 0 013-3h5.436a3 3 0 013 3v5.118z" /></svg>
+                    )}
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{n.title}</p>
+                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">{n.message}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{timeSince(n.createdAt)}</p>
                 </div>
                 {activeTab === 'history' && (
