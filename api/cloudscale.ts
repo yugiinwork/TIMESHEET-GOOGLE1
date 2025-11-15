@@ -1,10 +1,7 @@
-import { User, Timesheet, LeaveRequest, Project, Task, Notification } from '../types';
+import { User, Timesheet, LeaveRequest, Project, Task, Notification, Status } from '../types';
 import { USERS, TIMESHEETS, LEAVE_REQUESTS, PROJECTS, TASKS, NOTIFICATIONS } from '../constants';
 
-export const LOCAL_STORAGE_KEY = 'timesheetAppData_cloudscale';
-const SIMULATED_LATENCY = 200; // ms
-
-// --- Database Simulation ---
+export const LOCAL_STORAGE_KEY = 'timesheetProData';
 
 interface AppData {
   users: User[];
@@ -17,142 +14,128 @@ interface AppData {
   bestEmployeeOfYearIds: number[];
 }
 
-const initialState: AppData = {
+const getInitialData = (): AppData => ({
   users: USERS,
   timesheets: TIMESHEETS,
   leaveRequests: LEAVE_REQUESTS,
   projects: PROJECTS,
   tasks: TASKS,
   notifications: NOTIFICATIONS,
-  bestEmployeeIds: [1, 5],
+  bestEmployeeIds: [],
   bestEmployeeOfYearIds: [],
-};
+});
 
-let db: AppData;
-
-const loadDb = (): AppData => {
+// Helper to get all data from localStorage, initializing if it doesn't exist.
+const getAppDataFromStorage = (): AppData => {
   try {
-    const item = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (item) {
-      const parsed = JSON.parse(item);
-      if ('users' in parsed && 'projects' in parsed) {
-        // Ensure notifications array exists for backward compatibility
-        if (!parsed.notifications) {
-          parsed.notifications = [];
-        }
-
-        // Migration from single bestEmployeeId to array bestEmployeeIds
-        if (parsed.bestEmployeeId !== undefined) {
-          parsed.bestEmployeeIds = parsed.bestEmployeeId ? [parsed.bestEmployeeId] : [];
-          delete parsed.bestEmployeeId;
-        }
-
-        // Ensure bestEmployeeIds exists for older data structures
-        if (!parsed.bestEmployeeIds) {
-          parsed.bestEmployeeIds = [1, 5];
-        }
-
-        // Ensure bestEmployeeOfYearIds exists
-        if (!parsed.bestEmployeeOfYearIds) {
-            parsed.bestEmployeeOfYearIds = [];
-        }
-        
-        return parsed;
+    const storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (storedData) {
+      const data = JSON.parse(storedData);
+      // A simple validation to ensure the data structure is roughly correct.
+      if (data && data.users && data.timesheets && data.leaveRequests && data.projects) {
+        return data;
       }
     }
-    // If no valid data, initialize and save.
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialState));
-    return initialState;
   } catch (error) {
-    console.error("Error reading from localStorage", error);
-    return initialState;
+    console.error("Failed to parse data from localStorage, resetting.", error);
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
   }
+  
+  // If no valid data, initialize with constants.
+  const initialData = getInitialData();
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(initialData));
+  return initialData;
 };
 
-const saveDb = () => {
-  try {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(db));
-  } catch (error) {
-    console.error("Error writing to localStorage", error);
-  }
+// Helper to save all data to localStorage.
+const setAppDataToStorage = (data: AppData) => {
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
 };
 
-// Initialize DB on module load
-db = loadDb();
 
-// --- Simulated API ---
-
-// Generic function to simulate an async call
-const callApi = <T>(data: T): Promise<T> => {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve(JSON.parse(JSON.stringify(data))); // Deep copy to prevent mutation issues
-    }, SIMULATED_LATENCY);
-  });
-};
-
-// --- API Methods ---
-
+// The mock API using localStorage to simulate a backend.
 export const cloudscaleApi = {
-  getAppData: (): Promise<AppData> => {
-    // Re-load from storage in case another tab changed it.
-    db = loadDb();
-    return callApi(db);
+  getAppData: async (): Promise<AppData> => {
+    // Simulate an async API call
+    return Promise.resolve(getAppDataFromStorage());
   },
   
-  updateTimesheets: (timesheets: Timesheet[]): Promise<Timesheet[]> => {
-    db.timesheets = timesheets;
-    saveDb();
-    return callApi(db.timesheets);
+  updateTimesheets: async (timesheets: Timesheet[]): Promise<Timesheet[]> => {
+    const appData = getAppDataFromStorage();
+    appData.timesheets = timesheets;
+
+    // Recalculate actualHours for projects whenever timesheets are updated
+    // This keeps business logic in the "API layer"
+    appData.projects = appData.projects.map(p => {
+        const totalHours = appData.timesheets.reduce((projectSum, ts) => {
+            if (ts.status !== Status.APPROVED) return projectSum;
+
+            const workForThisProject = ts.projectWork.find(pw => pw.projectId === p.id);
+            if (workForThisProject) {
+                const hoursInTimesheet = workForThisProject.workEntries.reduce((workSum, entry) => workSum + entry.hours, 0);
+                return projectSum + hoursInTimesheet;
+            }
+            return projectSum;
+        }, 0);
+        return { ...p, actualHours: totalHours };
+    });
+
+    setAppDataToStorage(appData);
+    return Promise.resolve(timesheets);
   },
   
-  updateLeaveRequests: (leaveRequests: LeaveRequest[]): Promise<LeaveRequest[]> => {
-    db.leaveRequests = leaveRequests;
-    saveDb();
-    return callApi(db.leaveRequests);
+  updateLeaveRequests: async (leaveRequests: LeaveRequest[]): Promise<LeaveRequest[]> => {
+    const appData = getAppDataFromStorage();
+    appData.leaveRequests = leaveRequests;
+    setAppDataToStorage(appData);
+    return Promise.resolve(leaveRequests);
   },
   
-  updateProjects: (projects: Project[]): Promise<Project[]> => {
-    db.projects = projects;
-    saveDb();
-    return callApi(db.projects);
+  updateProjects: async (projects: Project[]): Promise<Project[]> => {
+    const appData = getAppDataFromStorage();
+    appData.projects = projects;
+    setAppDataToStorage(appData);
+    return Promise.resolve(projects);
   },
   
-  updateTasks: (tasks: Task[]): Promise<Task[]> => {
-    db.tasks = tasks;
-    saveDb();
-    return callApi(db.tasks);
+  updateTasks: async (tasks: Task[]): Promise<Task[]> => {
+    const appData = getAppDataFromStorage();
+    appData.tasks = tasks;
+    setAppDataToStorage(appData);
+    return Promise.resolve(tasks);
   },
   
-  updateUsers: (users: User[]): Promise<User[]> => {
-    db.users = users;
-    saveDb();
-    return callApi(db.users);
+  updateUsers: async (users: User[]): Promise<User[]> => {
+    const appData = getAppDataFromStorage();
+    appData.users = users;
+    setAppDataToStorage(appData);
+    return Promise.resolve(users);
   },
   
-  updateNotifications: (notifications: Notification[]): Promise<Notification[]> => {
-    db.notifications = notifications;
-    saveDb();
-    return callApi(db.notifications);
+  updateNotifications: async (notifications: Notification[]): Promise<Notification[]> => {
+    const appData = getAppDataFromStorage();
+    appData.notifications = notifications;
+    setAppDataToStorage(appData);
+    return Promise.resolve(notifications);
   },
 
-  updateBestEmployees: (userIds: number[]): Promise<number[]> => {
-    db.bestEmployeeIds = userIds;
-    saveDb();
-    return callApi(db.bestEmployeeIds);
+  updateBestEmployees: async (userIds: number[]): Promise<number[]> => {
+    const appData = getAppDataFromStorage();
+    appData.bestEmployeeIds = userIds;
+    setAppDataToStorage(appData);
+    return Promise.resolve(userIds);
   },
   
-  updateBestEmployeeOfYear: (userIds: number[]): Promise<number[]> => {
-    db.bestEmployeeOfYearIds = userIds;
-    saveDb();
-    return callApi(db.bestEmployeeOfYearIds);
+  updateBestEmployeeOfYear: async (userIds: number[]): Promise<number[]> => {
+    const appData = getAppDataFromStorage();
+    appData.bestEmployeeOfYearIds = userIds;
+    setAppDataToStorage(appData);
+    return Promise.resolve(userIds);
   },
 
-  login: (email: string, password?: string): Promise<User | null> => {
-    const user = db.users.find(u => u.email === email && u.password === password);
-    if (user) {
-        return callApi(user);
-    }
-    return callApi(null);
+  login: async (email: string, password?: string): Promise<User | null> => {
+    const appData = getAppDataFromStorage();
+    const user = appData.users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+    return Promise.resolve(user || null);
   },
 };

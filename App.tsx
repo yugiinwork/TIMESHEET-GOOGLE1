@@ -669,6 +669,15 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </form>
+              <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                Don't have an account?{' '}
+                <button 
+                  onClick={() => { setAuthView('signup'); setError(''); setSuccessMessage(''); }} 
+                  className="font-medium text-sky-600 hover:text-sky-500 focus:outline-none focus:underline"
+                >
+                  Sign up
+                </button>
+              </p>
             </div>
           </div>
         );
